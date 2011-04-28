@@ -2,8 +2,8 @@
 GPROF_FLAGS=-pg
 GCOV_FLAGS=-fprofile-arcs -ftest-coverage
 
-CFLAGS+=-Wall -Ihashtable/src -O3
-LDFLAGS+=-ldb -lrt -lpthread hashtable/src/libhashtable.a 
+CFLAGS+=-Wall -Ihashtable/src -O3 -I/usr/local/BerkeleyDB.4.8/include
+LDFLAGS+=-ldb -lrt -lpthread hashtable/src/libhashtable.a -L/usr/local/BerkeleyDB.4.8/lib
 TARGET=reading-server3
 
 all: $(TARGET) # module dump-db
@@ -25,7 +25,7 @@ test:
 	gcc -o test-query test-query.c -ldb
 
 
-SOURCES=util.c util-db.c reading-server.c logging.c
+SOURCES=util.c util-db.c reading-server.c logging.c stats-sock.c
 OBJECTS=$(SOURCES:.c=.o)
 
 $(TARGET): $(OBJECTS)

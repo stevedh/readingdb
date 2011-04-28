@@ -23,12 +23,14 @@
 #include "util.h"
 #include "logging.h"
 #include "hashtable.h"
+#include "stats.h"
 
 struct config {
   int commit_interval;          /* seconds */
   loglevel_t loglevel;
   char data_dir[FILENAME_MAX];
   unsigned short port;
+  int cache_size;
 };
 struct config conf;
 
@@ -86,9 +88,7 @@ pthread_mutex_lock(&worker_lock);                              \
     pthread_mutex_unlock(&worker_lock); }
 
 pthread_mutex_t stats_lock = PTHREAD_MUTEX_INITIALIZER;
-struct {
-  int queries, adds, failed_adds, connects, disconnects;
-} stats = {0, 0, 0};
+struct stats stats = {0, 0, 0};
 #define INCR_STAT(STAT) { pthread_mutex_lock(&stats_lock);     \
     stats.STAT ++;                                             \
     pthread_mutex_unlock(&stats_lock); }
@@ -110,6 +110,7 @@ void default_config(struct config *c) {
   c->loglevel = LOGLVL_INFO;
   strcpy(c->data_dir, DATA_DIR);
   c->port = 4242;
+  c->cache_size = 32;
 }
 
 void db_open(struct config *conf) {
@@ -125,7 +126,7 @@ void db_open(struct config *conf) {
 
   /* with such large keys we need more cache to avoid constant disk
      seeks. */
-  cache_size = 1024e6;
+  cache_size = conf->cache_size * 1e6;
   if ((ret = env->set_cachesize(env, 0, cache_size, 0)) != 0) {
     fatal("Error allocating cache error: %s\n", db_strerror(ret));
     exit(1);
@@ -612,14 +613,15 @@ void usage(char *progname) {
           "\t\t-h                 help\n"
           "\t\t-d <datadir>       set data directory\n"
           "\t\t-c <interval>      set commit interval\n"
-          "\t\t-p <port>          local port to bind to\n\n",
+          "\t\t-p <port>          local port to bind to\n"
+          "\t\t-s <cache size>    cache size (MB)\n\n",
           progname);
 }
 
 int optparse(int argc, char **argv, struct config *c) {
   char o;
   char *endptr;
-  while ((o = getopt(argc, argv, "vhd:c:p:")) != -1) {
+  while ((o = getopt(argc, argv, "vhd:c:p:s:")) != -1) {
     switch (o) {
     case 'h':
       usage(argv[0]);
@@ -630,6 +632,13 @@ int optparse(int argc, char **argv, struct config *c) {
       break;
     case 'd':
       strncpy(c->data_dir, optarg, FILENAME_MAX);
+      break;
+    case 's':
+      c->cache_size = strtol(optarg, &endptr, 10);
+      if (endptr == optarg) {
+        fatal("Invalid cache size\n");
+        return -1;
+      }
       break;
     case 'c':
       c->commit_interval = strtol(optarg, &endptr, 10);
@@ -847,6 +856,8 @@ int main(int argc, char **argv) {
   if (optparse(argc, argv, &conf) < 0)
     exit(1);
 
+  stats_init(conf.port);
+
   log_setlevel(conf.loglevel);
 
   drop_priv();
@@ -956,6 +967,7 @@ int main(int argc, char **argv) {
            delta.tv_sec, delta.tv_usec, tps,
            stats.queries, stats.adds, stats.failed_adds, 
            current_workers, stats.connects, stats.disconnects);
+      stats_report(&stats, &now);
       memset(&stats, 0, sizeof(stats));
       pthread_mutex_unlock(&stats_lock);
       gettimeofday(&last, NULL);
@@ -979,5 +991,6 @@ int main(int argc, char **argv) {
 
  close:
   db_close();
+  stats_close();
   return 0;
 }
