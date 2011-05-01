@@ -24,6 +24,8 @@
 #include "logging.h"
 #include "hashtable.h"
 #include "stats.h"
+#include "rpc.h"
+#include "pbuf/rdb.pb-c.h"
 
 struct config {
   int commit_interval;          /* seconds */
@@ -45,6 +47,14 @@ int bucket_sizes[NBUCKETSIZES] = {60 * 5,  /* five minutes */
 sig_atomic_t do_shutdown = 0;
 void sig_shutdown(int arg) {
   do_shutdown = 1;
+}
+void signal_setup() {
+  sigset_t old, set;
+  signal(SIGINT, sig_shutdown);
+
+  sigemptyset(&set);
+  sigaddset(&set, SIGPIPE);
+  sigprocmask(SIG_BLOCK, &set, &old);
 }
 
 FREELIST(struct ipc_command, dirty_data);
@@ -277,12 +287,15 @@ int split_bucket(DB *dbp, DBC *cursorp, DB_TXN *tid, struct rec_key *k) {
   return 0;
 }
 
-int add(DB *dbp, struct ipc_command *c) {
+int add(DB *dbp, ReadingSet *rs) {
   int cur_rec, ret;
   DBC *cursorp;
   struct rec_key cur_k;
   struct rec_val cur_v;
   DB_TXN *tid = NULL;
+  unsigned char buf[sizeof(struct rec_val) + POINT_OFF(MAXBUCKETRECS + NBUCKETSIZES)];
+  struct rec_val *v = (struct rec_val *)buf;
+  struct point *rec_data = v->data;
 
   bzero(&cur_k, sizeof(cur_k));
   bzero(&cur_v, sizeof(cur_v));
@@ -301,20 +314,20 @@ int add(DB *dbp, struct ipc_command *c) {
     goto abort;
   }
 
-  for (cur_rec = 0; cur_rec < c->args.add.n; cur_rec++) {
-    debug("Adding reading ts: 0x%x\n", c->args.add.v[cur_rec].timestamp);
+  for (cur_rec = 0; cur_rec < rs->n_data; cur_rec++) {
+    debug("Adding reading ts: 0x%x\n", rs->data[cur_rec]->timestamp);
 
     if (cur_v.n_valid > 0 &&
-        cur_k.stream_id == c->streamid &&
-        cur_k.timestamp <= c->args.add.v[cur_rec].timestamp &&
-        cur_k.timestamp + cur_v.period_length > c->args.add.v[cur_rec].timestamp) {
+        cur_k.stream_id == rs->streamid &&
+        cur_k.timestamp <= rs->data[cur_rec]->timestamp &&
+        cur_k.timestamp + cur_v.period_length > rs->data[cur_rec]->timestamp) {
       /* we're already in the right bucket; don't need to do anything */
       debug("In valid bucket.  n_valid: %i\n", cur_v.n_valid);
     } else {
       /* need to find the right bucket */
       debug("Looking up bucket\n");
-      cur_k.stream_id = c->streamid;
-      cur_k.timestamp = c->args.add.v[cur_rec].timestamp;
+      cur_k.stream_id = rs->streamid;
+      cur_k.timestamp = rs->data[cur_rec]->timestamp;
 
       if ((ret = get_bucket(cursorp, &cur_k, &cur_v)) <= 0) {
         /* create a new bucket */
@@ -331,43 +344,45 @@ int add(DB *dbp, struct ipc_command *c) {
     }
 
     /* start the insert -- we're in the current bucket */
-    if (cur_v.tail_timestamp < c->args.add.v[cur_rec].timestamp ||
+    if (cur_v.tail_timestamp < rs->data[cur_rec]->timestamp ||
         cur_v.n_valid == 0) {
       /* if it's an append or a new bucket we can just write the values */
       /* update the header block */
-      cur_v.tail_timestamp = c->args.add.v[cur_rec].timestamp;
+      cur_v.tail_timestamp = rs->data[cur_rec]->timestamp;
       cur_v.n_valid++;
       if (put_partial(dbp, tid, &cur_k, &cur_v, sizeof(cur_v), 0) < 0)
         goto abort;
       /* and the data */
-      if (put_partial(dbp, tid, &cur_k, &c->args.add.v[cur_rec], sizeof(struct point),
+      _rpc_copy_records(rec_data, &rs->data[cur_rec], 1);
+      if (put_partial(dbp, tid, &cur_k, &rec_data[0], sizeof(struct point),
                       POINT_OFF(cur_v.n_valid-1)) < 0)
         goto abort;
       debug("Append detected; inserting at offset: %i\n", POINT_OFF(cur_v.n_valid-1));
     } else {
-      char buf[POINT_OFF(MAXBUCKETRECS + NBUCKETSIZES)];
       struct rec_val *v = (struct rec_val *)buf;
+      struct point new_rec;
       int i;
       /* otherwise we have to insert it somewhere. we'll just read out
          all the data and do the insert stupidly. */
-      if ((ret = get(cursorp, DB_SET | DB_RMW, &cur_k, buf, sizeof(buf))) < 0) {
+      if ((ret = get(cursorp, DB_SET | DB_RMW, &cur_k, v, sizeof(buf))) < 0) {
         warn("error reading full bucket into memory (%i)!\n", ret);
         continue;
       }
       for (i = 0; i < v->n_valid; i++) {
-        if (v->data[i].timestamp >= c->args.add.v[cur_rec].timestamp)
+        if (v->data[i].timestamp >= rs->data[cur_rec]->timestamp)
           break;
       }
       debug("Inserting within existing bucket index: %i (%i %i)\n", 
-            i, c->args.add.v[cur_rec].timestamp, cur_v.tail_timestamp);
+            i, rs->data[cur_rec]->timestamp, cur_v.tail_timestamp);
       /* appends should have been handled without reading back the whole record */
       assert(i < v->n_valid);
       // assert(i < SMALL_POINTS);
       /* we have our insert position */
-      if (v->data[i].timestamp == c->args.add.v[cur_rec].timestamp) {
+      if (v->data[i].timestamp == rs->data[cur_rec]->timestamp) {
         /* replace a record */
-        debug("Replacing record with timestamp 0x%x\n", c->args.add.v[cur_rec].timestamp);
-        if (put_partial(dbp, tid, &cur_k, &c->args.add.v[cur_rec], sizeof(struct point),
+        debug("Replacing record with timestamp 0x%x\n", rs->data[cur_rec]->timestamp);
+        _rpc_copy_records(&new_rec, &rs->data[cur_rec], 1);
+        if (put_partial(dbp, tid, &cur_k, &new_rec, sizeof(struct point),
                         POINT_OFF(i)) < 0)
           goto abort;
       } else {
@@ -377,7 +392,8 @@ int add(DB *dbp, struct ipc_command *c) {
                         (v->n_valid - i) * sizeof(struct point),
                         POINT_OFF(i+1)) < 0)
           goto abort;
-        if (put_partial(dbp, tid, &cur_k, &c->args.add.v[cur_rec], 
+        _rpc_copy_records(&new_rec, &rs->data[cur_rec], 1);
+        if (put_partial(dbp, tid, &cur_k, &new_rec, 
                         sizeof(struct point),
                         POINT_OFF(i)) < 0) 
           goto abort;
@@ -415,66 +431,67 @@ int add(DB *dbp, struct ipc_command *c) {
   return -1;
 }
 
-int add_enqueue(struct ipc_command *c) {
+int add_enqueue(ReadingSet *rs, Response *reply) {
   unsigned long long key;
-  struct ipc_command *points;;
-  assert(c->command == COMMAND_ADD);
+  ReadingSet *points;
 
   debug("add_enqueue\n");
 
-  if (pthread_mutex_lock(&dbs[c->dbid].lock) != 0)
+  if (pthread_mutex_lock(&dbs[rs->substream].lock) != 0)
     return -1;
 
-  key = c->streamid;
-  points = hashtable_search(dbs[c->dbid].dirty_data, &key);
+  key = rs->streamid;
+  points = hashtable_search(dbs[rs->substream].dirty_data, &key);
   if (points == NULL) {
     unsigned long long *new_key = malloc(sizeof(unsigned long long));
     if (!new_key)
       goto fail;
-    points = FREELIST_GET(struct ipc_command, dirty_data); 
+
+    points = _rpc_alloc_rs(SMALL_POINTS);
     if (!points) {
       free(new_key);
       goto fail;
     }
     debug("creating new hashtable entry dbid: %i streamid: %i\n", 
-          c->dbid, c->streamid);
+          rs->substream, rs->streamid);
 
-    *new_key = c->streamid;
-    memcpy(points, c, sizeof(struct ipc_command));
-    points->args.add.n = 0;
+    points->streamid = rs->streamid;
+    points->substream = rs->substream;
+    *new_key = rs->streamid;
 
-    if (!hashtable_insert(dbs[c->dbid].dirty_data, new_key, points)) {
+    if (!hashtable_insert(dbs[rs->substream].dirty_data, new_key, points)) {
       free(new_key);
       FREELIST_PUT(struct ipc_command, dirty_data, points);
       goto fail;
     }
   }
-  if (c->args.add.n > SMALL_POINTS - points->args.add.n) {
+  if (rs->n_data > SMALL_POINTS - points->n_data) {
     /* do big adds directly */
-    info("writing data directly: streamid: %li bucket: %i n: %i\n",
-         key, points->args.add.n, c->args.add.n);
-    pthread_mutex_unlock(&dbs[c->dbid].lock);
+    info("writing data directly: streamid: %li n: %i\n",
+         key, rs->n_data);
+    pthread_mutex_unlock(&dbs[rs->substream].lock);
 
-    if (add(dbs[c->dbid].dbp, c) < 0) {
+    if (add(dbs[rs->substream].dbp, rs) < 0) {
       sleep(rand() % 1 );
       warn("Transaction aborted... retrying\n");
-      if (add(dbs[c->dbid].dbp, c) < 0) {
+      if (add(dbs[rs->substream].dbp, rs) < 0) {
         warn("Retry failed... giving up\n");
         INCR_STAT(failed_adds);
       }
     }
   } else {
+    int i;
     /* there's enough room to defer this add */
-    memcpy(&points->args.add.v[points->args.add.n], c->args.add.v, 
-           c->args.add.n * sizeof(struct point));
-    points->args.add.n += c->args.add.n;
-    debug("Added %i new records for deferred load\n", c->args.add.n);
-    pthread_mutex_unlock(&dbs[c->dbid].lock);
+    for (i = points->n_data; i < points->n_data + rs->n_data; i++)
+      memcpy(points->data[i], rs->data[i - points->n_data], sizeof(Reading));
+    points->n_data += rs->n_data;
+    debug("Added %i new records for deferred load\n", rs->n_data);
+    pthread_mutex_unlock(&dbs[rs->substream].lock);
     return 0;
   }
   return 0;
  fail:
-  pthread_mutex_unlock(&dbs[c->dbid].lock);
+  pthread_mutex_unlock(&dbs[rs->substream].lock);
   return -1;
 }
 
@@ -494,7 +511,7 @@ void commit_data(struct config *conf) {
     debug("commit: checking for new data\n");
     for (dbid = 0; dbid < MAX_SUBSTREAMS; dbid++) {
       unsigned long long *key = NULL;
-      struct ipc_command *val;
+      ReadingSet *val;
 
       while (1) {
         if (pthread_mutex_lock(&dbs[dbid].lock) != 0)
@@ -510,7 +527,7 @@ void commit_data(struct config *conf) {
         assert(val != NULL);
         
         debug("adding dbid: %i streamid: %llu nrecs: %i\n",
-              val->dbid, val->streamid, val->args.add.n);
+              val->substream, val->streamid, val->n_data);
         
         if (add(dbs[dbid].dbp, val) < 0) {
           warn("Transaction aborted in commit thread... retrying\n");
@@ -534,7 +551,7 @@ void commit_data(struct config *conf) {
   pthread_mutex_unlock(&shutdown_lock);
 }
 
-void query(DB *dbp, struct ipc_command *c, struct ipc_reply *r) {
+void query(DB *dbp, Query *q, Response *r) {
   int ret;
   DBC *cursorp;
   struct rec_key k;
@@ -542,17 +559,14 @@ void query(DB *dbp, struct ipc_command *c, struct ipc_reply *r) {
   unsigned long long starttime, endtime;
   int streamid;
   
-  streamid = c->streamid;
-  starttime = c->args.query.starttime;
-  endtime = c->args.query.endtime;
+  streamid = q->streamid;
+  starttime = q->starttime;
+  endtime = q->endtime;
   debug("starting query id: %i start: %i end: %i\n", streamid, starttime, endtime);
 
   /* set up the query key */
   k.stream_id = streamid;
   k.timestamp = starttime - (starttime % bucket_sizes[NBUCKETSIZES-1]);
-
-  r->reply = REPLY_QUERY;
-  r->data.query.nrecs = 0;
 
   ret = dbp->cursor(dbp, NULL, &cursorp, 0);
   if (cursorp == NULL) {
@@ -565,43 +579,102 @@ void query(DB *dbp, struct ipc_command *c, struct ipc_reply *r) {
   }
 
   do {
-    int start, i, first_rec = 0;
-    int read_recs = min(v.n_valid, MAXRECS - r->data.query.nrecs);
+    int i;
+    int read_recs = min(v.n_valid, MAXRECS - r->data->n_data);
+    struct point bucket[MAXBUCKETRECS + NBUCKETSIZES];
     debug("examining record start: 0x%x length: %i streamid: %i\n", 
           k.timestamp, v.period_length, k.stream_id);
     if (streamid != k.stream_id) break;
-    if (k.timestamp > endtime) break;
-    if (r->data.query.nrecs > MAXRECS) break;
+    if (k.timestamp >= endtime) break;
+    if (r->data->n_data >= MAXRECS) break;
 
-    /* holla.  we can read right into the result buffer */
-    if (get_partial(cursorp, DB_SET, &k, &r->data.query.pts[r->data.query.nrecs],
-                sizeof(struct point) * read_recs,
+    if (get_partial(cursorp, DB_SET, &k, bucket,
+                    sizeof(struct point) * read_recs,
 		    sizeof(struct rec_val)) < 0) {
-      goto next;
+     goto next;
     }
-    start = r->data.query.nrecs;
-    for (i = start; i < start + read_recs; i++) {
-      if (r->data.query.pts[i].timestamp >= starttime &&
-          r->data.query.pts[i].timestamp < endtime) {
-        r->data.query.nrecs ++;
-      } else if (r->data.query.pts[i].timestamp < starttime) {
-        first_rec = i + 1;
+    for (i = 0; i < read_recs; i++) {
+      if (bucket[i].timestamp >= starttime &&
+          bucket[i].timestamp < endtime) {
+        _rpc_copy_reading(r->data->data[r->data->n_data++], &bucket[i]);
       }
     }
-    debug("query: added %i/%i records\n", r->data.query.nrecs, v.n_valid);
-    if (first_rec > 0) {
-      memmove(&r->data.query.pts[0], &r->data.query.pts[first_rec], 
-              r->data.query.nrecs * sizeof(struct point));
-    }
+    debug("query: added %i/%i records\n", r->data->n_data, v.n_valid);
   next:
     ;
   } while (get_partial(cursorp, DB_NEXT, &k, &v, 
                        sizeof(struct rec_val), 0) == 0);
 
-  r->data.query.nrecs = (r->data.query.nrecs > MAXRECS) ? MAXRECS : r->data.query.nrecs;
-  debug("returning %i records\n", r->data.query.nrecs);
-  r->reply = REPLY_OK;
+  debug("returning %i records\n", r->data->n_data);
+  r->error = RESPONSE__ERROR_CODE__OK;
   
+ done:
+  cursorp->close(cursorp);
+}
+
+void query_nearest(DB *dbp, Nearest *n, Response *rs) {
+  int ret;
+  DBC *cursorp;
+  struct rec_key k;
+  struct rec_val v;
+  unsigned long long starttime;
+  int streamid, i;
+  int direction = n->direction == NEAREST__DIRECTION__NEXT ? DB_NEXT : DB_PREV;
+
+  streamid = n->streamid;
+  starttime = n->reference;
+  debug("starting nearest query id: %i reference: %i\n", streamid, starttime);
+
+  /* set up the query key */
+  k.stream_id = streamid;
+  if (direction == DB_NEXT) {
+    k.timestamp = starttime - (starttime % bucket_sizes[NBUCKETSIZES-1]);
+  } else if (direction == DB_PREV) {
+    k.timestamp = starttime - (starttime % bucket_sizes[0]);
+  }
+
+  rs->error = RESPONSE__ERROR_CODE__OK;
+  rs->data->n_data = 0;
+
+  ret = dbp->cursor(dbp, NULL, &cursorp, 0);
+  if (cursorp == NULL) {
+    dbp->err(dbp, ret, "cursor");
+    return;
+  }
+
+  if (get_partial(cursorp, DB_SET_RANGE, &k, &v, sizeof(struct rec_val), 0) < 0) {
+    goto done;
+  }
+
+  do {
+    struct point bucket[MAXBUCKETRECS + NBUCKETSIZES];
+    debug("examining record start: 0x%x length: %i streamid: %i\n", 
+          k.timestamp, v.period_length, k.stream_id);
+    if (streamid != k.stream_id) break;
+    if ((direction == DB_NEXT && k.timestamp + v.period_length < starttime) ||
+        (direction == DB_PREV && k.timestamp > starttime)) goto next;
+    if (get_partial(cursorp, DB_SET, &k, bucket,
+                    sizeof(struct point) * v.n_valid,
+		    sizeof(struct rec_val)) < 0) {
+     goto next;
+    }
+
+    for (i = (direction == DB_NEXT ? 0 : v.n_valid - 1);
+         (direction == DB_NEXT ? i < v.n_valid : i >= 0);
+         (direction == DB_NEXT ? i++ : i--)) {
+      if ((direction == DB_NEXT && bucket[i].timestamp > starttime) ||
+          (direction == DB_PREV && bucket[i].timestamp < starttime)) {
+        /* return */
+        _rpc_copy_reading(rs->data->data[0], &bucket[i]);
+        rs->data->n_data = 1;
+        goto done;
+      } 
+    }
+
+  next:
+    ;
+  } while (get_partial(cursorp, direction, &k, &v,
+                       sizeof(struct rec_val), 0) == 0);
  done:
   cursorp->close(cursorp);
 }
@@ -665,25 +738,131 @@ int optparse(int argc, char **argv, struct config *c) {
   return 0;
 }
 
+void process_pbuf(struct sock_request *request) {
+  struct pbuf_header h;
+  int current_alloc = 0;
+  void *buf;
+  Query *q = NULL;
+  ReadingSet *rs = NULL;
+  Nearest *n = NULL;
+  Response response = RESPONSE__INIT;
+
+  while (fread(&h, sizeof(h), 1, request->sock_fp) > 0) {
+    if (ntohl(h.body_length) > MAX_PBUF_MESSAGE) 
+      goto abort;
+    if (ntohl(h.body_length) > current_alloc) {
+      if (current_alloc > 0) free(buf);
+
+      buf = malloc(ntohl(h.body_length));
+      if (buf == NULL)
+        goto abort;
+
+      current_alloc = ntohl(h.body_length);
+    }
+    if (fread(buf, ntohl(h.body_length), 1, request->sock_fp) <= 0)
+      goto abort;
+
+    switch (ntohl(h.message_type)) {
+    case MESSAGE_TYPE__QUERY:
+      q = query__unpack(NULL, ntohl(h.body_length), buf);
+      if (q == NULL) goto abort;
+      if (q->substream < 0 || q->substream >= MAX_SUBSTREAMS) {
+        query__free_unpacked(q, NULL);
+        
+        goto abort;
+      } 
+      INCR_STAT(queries);
+      debug("query streamid: %i substream: %i start: %i end: %i\n",
+           q->streamid, q->substream, q->starttime, q->endtime);
+      response.error = RESPONSE__ERROR_CODE__OK;
+      response.data = _rpc_alloc_rs(MAXRECS);
+      if (!response.data) {
+        response.error = RESPONSE__ERROR_CODE__FAIL_MEM;
+        rpc_send_reply(request, &response);
+        query__free_unpacked(q, NULL);
+        goto abort;
+      }
+
+      response.data->streamid = q->streamid;
+      response.data->substream = q->substream;
+      response.data->n_data = 0;
+      query(dbs[q->substream].dbp, q, &response);
+      rpc_send_reply(request, &response);
+      query__free_unpacked(q, NULL);
+      _rpc_free_rs(response.data);
+      break;
+    case MESSAGE_TYPE__READINGSET:
+      rs = reading_set__unpack(NULL, ntohl(h.body_length), buf);
+      if (!rs) goto abort;
+      if (rs->substream < 0 || rs->substream >= MAX_SUBSTREAMS) {
+        response.error = RESPONSE__ERROR_CODE__FAIL_PARAM;
+        rpc_send_reply(request, &response);
+        reading_set__free_unpacked(rs, NULL);
+        goto q_abort;
+      }
+      INCR_STAT(adds);
+      add_enqueue(rs, &response);
+      break;
+    q_abort:
+      reading_set__free_unpacked(rs, NULL);
+      goto abort;
+    case MESSAGE_TYPE__NEAREST:
+      debug("Processing nearest command\n");
+      n = nearest__unpack(NULL, ntohl(h.body_length), buf);
+      if (!n) goto abort;
+      if (n->substream < 0 || n->substream >= MAX_SUBSTREAMS) {
+        response.error = RESPONSE__ERROR_CODE__FAIL_PARAM;
+        rpc_send_reply(request, &response);
+        nearest__free_unpacked(n, NULL);
+        goto abort;
+      }
+      response.error = RESPONSE__ERROR_CODE__FAIL_PARAM;
+      response.data = _rpc_alloc_rs(1);
+      if (!response.data) {
+        response.error = RESPONSE__ERROR_CODE__FAIL_MEM;
+        rpc_send_reply(request, &response);
+        nearest__free_unpacked(n, NULL);
+        goto abort;
+      }
+      query_nearest(dbs[n->substream].dbp, n, &response);
+      rpc_send_reply(request, &response);
+      nearest__free_unpacked(n, NULL);
+      _rpc_free_rs(response.data);
+      INCR_STAT(nearest);
+      break;
+    }
+  }
+  return;
+ abort:
+  if (current_alloc > 0)
+    free(buf);
+}
+
 void *process_request(void *request) {
-  char buf[4096];
   struct sock_request *req = (struct sock_request *)request;
   struct timeval timeout;
   FILE *fp = NULL;
+#if 0
+  char buf[4096];
   int dbid = 0;
-  struct ipc_command cmd;
-  memset(&cmd, 0, sizeof(cmd));
+  ReadingSet *rs = NULL;
+  Response resp = RESPONSE__INIT;
+#endif
   
   timeout.tv_sec = 60;
-  timeout.tv_usec = 0;
-  
+  timeout.tv_usec = 0;  
   if (setsockopt(req->sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
     goto done;
 
   fp = fdopen(req->sock, "r+");
   if (!fp)
     goto done;
+  else
+    req->sock_fp = fp;
 
+  process_pbuf(req);
+
+#if 0
   while (fgets(buf, sizeof(buf), fp) != NULL) {
     if (memcmp(buf, "echo", 4) == 0) {
       fwrite(buf, strlen(buf), 1, fp);
@@ -705,46 +884,52 @@ void *process_request(void *request) {
 
         goto done;
       }
-      if (cmd.command == COMMAND_ADD) {
-        add_enqueue(&cmd);
-        memset(&cmd, 0, sizeof(cmd));
+      if (rs != NULL && rs->data->n_data > 0) {
+        add_enqueue(rs, NULL);
+        rs->data->n_data = 0;
       }
     } else if (memcmp(buf, "put", 3) == 0) {
       int streamid, timestamp, sequence, converted, idx;
       double value, min = LLONG_MIN, max = LLONG_MAX;
+      if (rs == NULL)
+        rs = _rpc_alloc_rs(SMALL_POINTS);
+      if (!rs)
+        goto done;
 
+      reading__init(rs->data->data[rs->data->n_data]);
       converted = sscanf(buf, "put %i %i %i %lf %lf %lf", 
-                         &streamid, &timestamp, &sequence,
-                         &value, &min, &max);
+                         streamid, timestamp, sequence, 
+                         value, min, max);
       if (converted < 3) {
         char *msg = "-2 invalid argument\n";
         fwrite(msg, strlen(msg), 1, fp);
         goto done;
-      }
+      } 
 
-      if (cmd.command != COMMAND_ADD) {
+      if (rs->substream != dbid ||
+            substream.streamid != streamid) {
+        add_enqueue(rs, NULL);
         cmd.args.add.n = 0;
-      } else {
-        if (cmd.dbid != dbid ||
-            cmd.streamid != streamid) {
-          add_enqueue(&cmd);
-          cmd.args.add.n = 0;
-        }
       }
-      cmd.command = COMMAND_ADD;
-      cmd.dbid = dbid;
-      cmd.streamid = streamid;
+      cmd->substream = dbid;
+      cmd->streamid = streamid;
           
-      idx = cmd.args.add.n++;
-      cmd.args.add.v[idx].timestamp = timestamp;
-      cmd.args.add.v[idx].reading_sequence = sequence;
-      cmd.args.add.v[idx].reading = value;
-      cmd.args.add.v[idx].min = min;
-      cmd.args.add.v[idx].max = max;
+      idx = rs->data->n_data++;
+      rs->data->data[rs->data->n_data]->timestamp = timestamp;
+      rs->data->data[rs->data->n_data]->seqno = sequence;
+      rs->data->data[rs->data->n_data]->value = value;
+      rs->data->data[rs->data->n_data]->min = min;
+      rs->data->data[rs->data->n_data]->max = max;
+      if (sequence != 0)
+        rs->data->data[rs->data->n_data]->has_seqno = 1;
+      if (converted == 6) {
+        rs->data->data[rs->data->n_data]->has_min = 1;
+        rs->data->data[rs->data->n_data]->has_max = 1;
+      }
 
-      if (cmd.args.add.n == SMALL_POINTS) {
-        add_enqueue(&cmd);
-        memset(&cmd, 0, sizeof(cmd));
+      if (rs->data->n_data == SMALL_POINTS) {
+        add_enqueue(rs, NULL);
+        rs->data->n_data = 0;
       }
       INCR_STAT(adds);
 
@@ -768,8 +953,8 @@ void *process_request(void *request) {
       }
 
       /* add any pending data before reusing the buffer */
-      if (cmd.command == COMMAND_ADD) {
-        add_enqueue(&cmd);
+      if (rs && rs->data->n_data > 0) {
+        add_enqueue(rs, NULL);
       }
 
       cmd.command = COMMAND_QUERY;
@@ -778,7 +963,7 @@ void *process_request(void *request) {
       cmd.args.query.starttime = start;
       cmd.args.query.endtime = end;
 
-      query(dbs[dbid].dbp, &cmd, r);
+      //query(dbs[dbid].dbp, &cmd, r);
 
       if (r->reply != REPLY_OK) {
         char *msg = "-4 query failed\n";
@@ -808,13 +993,17 @@ void *process_request(void *request) {
 
       INCR_STAT(queries);
       free(r);
+    } else if (memcmp(buf, "binmode", 7) == 0) {
+      process_pbuf(req);
+      goto done;
     }
   }
   
   if (cmd.command == COMMAND_ADD &&
       cmd.args.add.n > 0) {
-    add_enqueue(&cmd);
+    // add_enqueue(&cmd);
   }
+#endif
   
  done:
   debug("closing socket\n");
@@ -865,7 +1054,7 @@ int main(int argc, char **argv) {
   // open the database
   db_open(&conf);
   
-  signal(SIGINT, sig_shutdown);
+  signal_setup();
   gettimeofday(&last, NULL);
 
   int sock = socket(AF_INET6, SOCK_STREAM, 0);

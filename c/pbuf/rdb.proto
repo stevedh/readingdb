@@ -1,0 +1,56 @@
+
+message Reading {
+  required uint64 timestamp = 1;
+  required double value = 2;
+  optional uint64 seqno = 3;
+  optional double min = 4;
+  optional double max = 5;
+}
+
+message ReadingSet {
+  required uint64 streamid = 1;
+  required uint64 substream = 2;
+  repeated Reading data = 3;
+}
+
+message Query {
+  required uint64 streamid = 1;
+  required uint64 substream = 2;
+  required uint64 starttime = 3;
+  required uint64 endtime = 4;
+}
+
+message Nearest {
+  required uint64 streamid = 1;
+  required uint64 substream = 2;
+  required uint64 reference = 3;
+  enum Direction {
+    NEXT = 1;
+    PREV = 2;
+  } 
+  required Direction direction = 4;
+}
+
+message Response {
+  enum ErrorCode {
+    OK = 1;
+    FAIL = 2;
+    FAIL_PARAM = 3;
+    FAIL_MEM = 4;
+  }
+  required ErrorCode error = 1;
+  optional ReadingSet data = 2;
+}
+
+enum MessageType {
+  QUERY = 1;
+  READINGSET = 2;
+  RESPONSE = 3;
+  NEAREST = 4;
+}
+
+service ReadingDB {
+  rpc Ask (Query) returns (Response);
+  rpc Tell (ReadingSet) returns (Response);
+  rpc Iter (Nearest) returns (Response);
+}

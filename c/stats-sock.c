@@ -44,13 +44,15 @@ void stats_report(struct stats *s, struct timeval *when) {
                "{\"timestamp\": %li.%06li, "
                "\"queries\": %i, \"adds\": %i, "
                "\"failed_adds\": %i, "
-               "\"connects\": %i, \"disconnects\": %i}\n",
+               "\"connects\": %i, \"disconnects\": %i,"
+               "\"nearest\": %i }\n",
                when->tv_sec, when->tv_usec,
                s->queries, s->adds, s->failed_adds, 
-               s->connects, s->disconnects);
+               s->connects, s->disconnects,
+               s->nearest);
 
   if (send(sock, buf, n, MSG_DONTWAIT) < 0) {
-    warn("stats_report: send: %s\n", strerror(errno));
+    debug("stats_report: send: %s\n", strerror(errno));
   }
 }
 

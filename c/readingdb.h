@@ -3,11 +3,13 @@
 
 #include <stdint.h>
 #include <semaphore.h>
+#include <stdio.h>
 
 /* types used for shared memory communication */
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+
 
 #define DATA_DIR "/mnt/sdb1/data"
 #define MAX_SUBSTREAMS 10
@@ -21,6 +23,8 @@
 #define DEFAULT_PAGESIZE 65536
 /* must be sorted */
 extern int bucket_sizes[NBUCKETSIZES];
+
+#define MAXQUERYSET 128
 
 /* record definitions for the bdb instance */
 struct rec_key {
@@ -53,6 +57,8 @@ struct point_list {
 
 struct sock_request {
   int sock;
+  FILE *sock_fp;
+  int substream;
 };
 
 struct ipc_command {
@@ -89,16 +95,11 @@ struct ipc_reply {
   } data;;
 };
 
-typedef struct {
-  sem_t *mutex_caller, *mutex_server, *mutex_reply;
-  int fd;
-  int dbid;
-  void *shm;
-  int sa_flags;
-} IPC;
+struct pbuf_header {
+  uint32_t message_type;
+  uint32_t body_length;
+};
 
-
-
+#define MAX_PBUF_MESSAGE 1000000
 
 #endif
-

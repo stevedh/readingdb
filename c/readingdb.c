@@ -77,7 +77,7 @@ IPC *db_open(void) {
 }
 
 void db_substream(IPC *ipp, int substream) {
-  ipp->dbid = substream;
+  ipp->substream = substream;
 }
 
 void db_close(IPC *ipp) {
