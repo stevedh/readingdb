@@ -153,7 +153,7 @@ int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
     return -1;
   }
   free(buf);
-  return 0;
+  return 1;
 }
 
 PyObject * read_resultset(struct sock_request *ipp) {
