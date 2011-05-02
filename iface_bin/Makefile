@@ -11,7 +11,7 @@ module: readingdb.i readingdb_wrap.c
 	python setup.py build_ext --inplace
 
 readingdb_wrap.c: readingdb.i ../c/readingdb.h readingdb_py.h
-	swig -python -Wall readingdb.i
+	swig -python -keyword -Wall readingdb.i
 
 clean:
 	rm _readingdb.so
