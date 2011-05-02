@@ -751,7 +751,10 @@ void process_pbuf(struct sock_request *request) {
     if (ntohl(h.body_length) > MAX_PBUF_MESSAGE) 
       goto abort;
     if (ntohl(h.body_length) > current_alloc) {
-      if (current_alloc > 0) free(buf);
+      if (current_alloc > 0) {
+	free(buf);
+	current_alloc = 0;
+      }
 
       buf = malloc(ntohl(h.body_length));
       if (buf == NULL)
@@ -832,7 +835,6 @@ void process_pbuf(struct sock_request *request) {
       break;
     }
   }
-  return;
  abort:
   if (current_alloc > 0)
     free(buf);
