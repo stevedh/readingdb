@@ -4,7 +4,7 @@ from distutils.core import setup, Extension
 readingdb_module = Extension('_readingdb',
                              sources=['readingdb_wrap.c', 'readingdb.c',
                                       '../c/pbuf/rdb.pb-c.c', '../c/rpc.c'], # , 'util.c', 'logging.c'],
-                             libraries=['rt', 'protobuf-c'])
+                             libraries=['protobuf-c'])
 
 setup (name='readingdb',
        version='5.0',

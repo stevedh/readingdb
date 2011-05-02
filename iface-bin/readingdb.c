@@ -15,7 +15,7 @@
 
 #include "../c/readingdb.h"
 #include "../c/rpc.h"
-#include "../c/pbuf/rdb.pb-c.h"
+// #include "../c/pbuf/rdb.pb-c.h"
 
 #define TIMEOUT_SECS 10
 #define SIGREPLACE SIGTERM
@@ -25,13 +25,14 @@ struct sock_request *db_open(char *host, short port) {
   struct addrinfo *res, hints;
   struct sockaddr_in dest;
   struct timeval timeout;
-  if (!req) return NULL;
 
-  printf("host: %s port: %i\n", host, port);
+  if (!req) 
+    return (struct sock_request *)PyErr_NoMemory();
+
   memset(&hints, 0, sizeof(hints));
   hints.ai_family = AF_INET;
   if (getaddrinfo(host, NULL, &hints, &res) != 0) {
-    fprintf(stderr, "WARN: could not resolve host: %s\n", host);
+    PyErr_Format(PyExc_IOError, "IOError: could not resolve host: %s\n", host);
     return NULL;
   }
 
@@ -41,25 +42,25 @@ struct sock_request *db_open(char *host, short port) {
 
   req->sock = socket(AF_INET, SOCK_STREAM, 0);
   if (req->sock < 0) {
-    fprintf(stderr, "WARN: socket: %s\n", strerror(errno));
+    PyErr_Format(PyExc_IOError, "IOError: socket: %s\n", strerror(errno));
     goto cleanup;
   }
 
   timeout.tv_sec = 30;
   timeout.tv_usec = 0;
   if (setsockopt(req->sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-    fprintf(stderr, "WARN: setsockopt: %s\n", strerror(errno));
+    PyErr_Format(PyExc_IOError, "IOError: setsockopt: %s\n", strerror(errno));
     goto cleanup;
   }
 
   if (connect(req->sock, &dest, sizeof(dest)) < 0) {
-    fprintf(stderr, "WARN: connect: %s\n", strerror(errno));
+    PyErr_Format(PyExc_IOError, "IOError: connect: %s\n", strerror(errno));
     goto cleanup;
   }
 
   req->sock_fp = fdopen(req->sock, "r+");
   if (req->sock_fp == NULL) {
-    fprintf(stderr, "WARN: fdopen: %s\n", strerror(errno));
+    PyErr_Format(PyExc_IOError, "IOError: fdopen: %s\n", strerror(errno));
     close(req->sock);
     goto cleanup;
   }
@@ -68,11 +69,14 @@ struct sock_request *db_open(char *host, short port) {
   return req;
  cleanup:
   free(req);
+  if (!PyErr_Occurred())
+    PyErr_SetString(PyExc_IOError, "Generic error");
   return NULL;
 }
 
 void db_substream(struct sock_request *ipp, int substream) {
-  ipp->substream = substream;
+  if (ipp)
+    ipp->substream = substream;
 }
 
 int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
@@ -82,8 +86,10 @@ int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
   unsigned char *buf;
 
   r = _rpc_alloc_rs(SMALL_POINTS);
-  if (!r)
+  if (!r) {
+    PyErr_SetNone(PyExc_MemoryError);
     return -1;
+  }
 
   r->streamid = streamid;
   r->substream = ipp->substream;
@@ -123,7 +129,10 @@ int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
 
   len = reading_set__get_packed_size(r);
   buf = malloc(len);
-  if (!buf) return -1;
+  if (!buf) {
+    PyErr_SetNone(PyExc_MemoryError);
+    return -1;
+  }
   reading_set__pack(r, buf);
   _rpc_free_rs(r);
 
@@ -132,10 +141,12 @@ int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
   
   if (fwrite(&h, sizeof(h), 1, ipp->sock_fp) <= 0) {
     free(buf);
+    PyErr_Format(PyExc_IOError, "IOError: error writing to socket: %s", strerror(errno));
     return -1;
   }
   if (fwrite(buf, len, 1, ipp->sock_fp) <= 0) {
     free(buf);
+    PyErr_Format(PyExc_IOError, "IOError: error writing to socket: %s", strerror(errno));
     return -1;
   }
   free(buf);
@@ -150,20 +161,24 @@ PyObject * read_resultset(struct sock_request *ipp) {
   int len, i;
 
   /* read the reply */
-  if (fread(&h, sizeof(h), 1, ipp->sock_fp) <= 0) 
+  if (fread(&h, sizeof(h), 1, ipp->sock_fp) <= 0) {
+    PyErr_Format(PyExc_IOError, "IOError: read_resultset: error reading from socket: %s", strerror(errno));
     return NULL;
+  }
   len = ntohl(h.body_length);
   reply = malloc(len);
   if (!reply) return NULL;;
   if (fread(reply, len, 1, ipp->sock_fp) <= 0) {
     free(reply);
+    PyErr_Format(PyExc_IOError, "IOError: read_resultset: error reading from socket: %s", strerror(errno));
     return NULL;
   }
   r = response__unpack(NULL, len, reply);
   free(reply);
-  if (!r)
+  if (!r) {
+    PyErr_Format(PyExc_IOError, "IOError: read_resultset: error unpacking");
     return NULL;
-
+  }
 /*   printf("Received reply code: %i results: %li len: %i\n", */
 /*          r->error, r->data->n_data, len); */
 
@@ -171,7 +186,7 @@ PyObject * read_resultset(struct sock_request *ipp) {
   ret = PyList_New(r->data->n_data);
   if (ret == NULL) {
     response__free_unpacked(r, NULL);
-    PyErr_SetString(PyExc_IOError, "couldn't allocate list");
+    /* PyList_New sets exception */
     return NULL;
   }
 
@@ -213,15 +228,15 @@ PyObject *db_query(struct sock_request *ipp, unsigned long long streamid,
     h.body_length = htonl(len);
     /* send it */
     if (fwrite(&h, sizeof(h), 1, ipp->sock_fp) <= 0)
-      goto abort;
+      goto write_error;
     if (fwrite(buf, len , 1, ipp->sock_fp) <= 0)
-      goto abort;
+      goto write_error;
     fflush(ipp->sock_fp);
 
     return read_resultset(ipp);
   }
- abort:
-  PyErr_SetString(PyExc_IOError, "db_query: generic error");
+ write_error:
+  PyErr_Format(PyExc_IOError, "IOError: db_query: error writing: %s", strerror(errno));
   return NULL;
 }
 
@@ -237,24 +252,26 @@ PyObject *db_iter(struct sock_request *ipp, int streamid,
   n.reference = reference;
   n.direction = direction;
 
-  if ((len = nearest__get_packed_size(&n)) > sizeof(buf))
-    goto abort;
+  if ((len = nearest__get_packed_size(&n)) > sizeof(buf)) {
+    PyErr_SetString(PyExc_IOError, "db_next: generic error");
+    return NULL;
+  }
 
   h.message_type = htonl(MESSAGE_TYPE__NEAREST);
   h.body_length = htonl(len);
   nearest__pack(&n, buf);
   
   if (fwrite(&h, sizeof(h), 1, ipp->sock_fp) <= 0)
-    goto abort;
+    goto write_error;
   if (fwrite(buf, len, 1, ipp->sock_fp) <= 0)
-    goto abort;
+    goto write_error;
   fflush(ipp->sock_fp);
 
   return read_resultset(ipp);
 
- abort:
-  PyErr_SetString(PyExc_IOError, "db_next: generic error");
-  return -1;
+ write_error:
+  PyErr_Format(PyExc_IOError, "IOError: db_iter: error writing: %s", strerror(errno));
+  return NULL;
 }
 
 PyObject *db_next(struct sock_request *ipp, int streamid, 
