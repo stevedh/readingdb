@@ -84,7 +84,12 @@ void _rpc_free_rs(ReadingSet *rs) {
 int rpc_send_reply(struct sock_request *request, 
                     Response *response) {
   void *reply;
-  int reply_len;
+  int reply_len, i_alloced = 0;
+  if (response->data == NULL) {
+    response->data = _rpc_alloc_rs(1);
+    i_alloced = 1;
+  }
+
   reply_len = response__get_packed_size(response);
   reply = malloc(reply_len);
   if (reply) {
@@ -99,9 +104,13 @@ int rpc_send_reply(struct sock_request *request,
     // info("wrote %i bytes\n", sizeof(h) + reply_len);
     fflush(request->sock_fp);
     free(reply);
+    if (i_alloced)
+      _rpc_free_rs(response->data);
     return 0;
   }
  fail:
+  if (i_alloced)
+    _rpc_free_rs(response->data);
   return -1;
 }
 
