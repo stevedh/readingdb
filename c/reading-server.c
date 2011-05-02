@@ -648,9 +648,10 @@ void query_nearest(DB *dbp, Nearest *n, Response *rs) {
 
   do {
     struct point bucket[MAXBUCKETRECS + NBUCKETSIZES];
-    debug("examining record start: 0x%x length: %i streamid: %i\n", 
+    debug("examining record start: %i length: %i streamid: %i\n", 
           k.timestamp, v.period_length, k.stream_id);
-    if (streamid != k.stream_id) break;
+    if ((direction == DB_NEXT && k.stream_id > streamid) ||
+        (direction == DB_PREV && k.stream_id < streamid)) break;
     if ((direction == DB_NEXT && k.timestamp + v.period_length < starttime) ||
         (direction == DB_PREV && k.timestamp > starttime)) goto next;
     if (get_partial(cursorp, DB_SET, &k, bucket,
@@ -662,8 +663,9 @@ void query_nearest(DB *dbp, Nearest *n, Response *rs) {
     for (i = (direction == DB_NEXT ? 0 : v.n_valid - 1);
          (direction == DB_NEXT ? i < v.n_valid : i >= 0);
          (direction == DB_NEXT ? i++ : i--)) {
-      if ((direction == DB_NEXT && bucket[i].timestamp > starttime) ||
-          (direction == DB_PREV && bucket[i].timestamp < starttime)) {
+      if (k.stream_id == streamid && 
+          ((direction == DB_NEXT && bucket[i].timestamp > starttime) ||
+           (direction == DB_PREV && bucket[i].timestamp < starttime))) {
         /* return */
         _rpc_copy_reading(rs->data->data[0], &bucket[i]);
         rs->data->n_data = 1;
