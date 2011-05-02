@@ -95,10 +95,12 @@ int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
   r->substream = ipp->substream;
 
   if (!PyList_Check(values)) {
+    _rpc_free_rs(r);
     return -1;
   }
 
   if (PyList_Size(values) > SMALL_POINTS) {
+    _rpc_free_rs(r);
     return -1;
   }
 
@@ -130,6 +132,7 @@ int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
   len = reading_set__get_packed_size(r);
   buf = malloc(len);
   if (!buf) {
+    _rpc_free_rs(r);
     PyErr_SetNone(PyExc_MemoryError);
     return -1;
   }
