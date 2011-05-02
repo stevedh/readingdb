@@ -5,8 +5,8 @@ import readingdb as rdb
 
 end = 1304102690
 
-db = rdb.db_open()
-rdb.db_substream(db, 3)
+db = rdb.db_open(host='jackalope.cs.berkeley.edu', port=4243)
+rdb.db_substream(db, 0)
 
 S1MAX = 1000 * 100
 if len(sys.argv) == 1:
@@ -49,8 +49,7 @@ elif sys.argv[1] == '-n':
         if i % 3600 == 0: prev -= 3600
         assert d[0][0] == prev
 elif sys.argv[1] == '-s':
-    rdb.db_substream(db, 109)
-    print rdb.db_next(db, 2, 0)
+    print rdb.db_next(db, 1, 0)
 else:
     print "invalid argument"
 
