@@ -6,9 +6,7 @@
 
 %exception db_open {
   $action
-  if (!result) {
-    return NULL;
-  }
+  if (!result) return NULL;        
 }
 struct sock_request *db_open(char *host="jackalope.cs.berkeley.edu", short port=4243);
 
@@ -18,8 +16,7 @@ void db_close(struct sock_request *dbp);
 
 %exception db_query {
   $action
-  if (!result)
-    return NULL;
+  if (!result) return NULL;
 }
 PyObject *db_query(struct sock_request *dbp, unsigned long long streamid, 
         unsigned long long starttime, 

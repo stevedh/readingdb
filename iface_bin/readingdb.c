@@ -32,7 +32,7 @@ struct sock_request *db_open(char *host, short port) {
   memset(&hints, 0, sizeof(hints));
   hints.ai_family = AF_INET;
   if (getaddrinfo(host, NULL, &hints, &res) != 0) {
-    PyErr_Format(PyExc_IOError, "IOError: could not resolve host: %s\n", host);
+    PyErr_Format(PyExc_IOError, "could not resolve host: %s", host);
     return NULL;
   }
 
@@ -42,25 +42,25 @@ struct sock_request *db_open(char *host, short port) {
 
   req->sock = socket(AF_INET, SOCK_STREAM, 0);
   if (req->sock < 0) {
-    PyErr_Format(PyExc_IOError, "IOError: socket: %s\n", strerror(errno));
+    PyErr_Format(PyExc_IOError, "socket: %s", strerror(errno));
     goto cleanup;
   }
 
   timeout.tv_sec = 30;
   timeout.tv_usec = 0;
   if (setsockopt(req->sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-    PyErr_Format(PyExc_IOError, "IOError: setsockopt: %s\n", strerror(errno));
+    PyErr_Format(PyExc_IOError, "setsockopt: %s", strerror(errno));
     goto cleanup;
   }
 
   if (connect(req->sock, &dest, sizeof(dest)) < 0) {
-    PyErr_Format(PyExc_IOError, "IOError: connect: %s\n", strerror(errno));
+    PyErr_Format(PyExc_IOError, "connect: %s", strerror(errno));
     goto cleanup;
   }
 
   req->sock_fp = fdopen(req->sock, "r+");
   if (req->sock_fp == NULL) {
-    PyErr_Format(PyExc_IOError, "IOError: fdopen: %s\n", strerror(errno));
+    PyErr_Format(PyExc_IOError, "fdopen: %s", strerror(errno));
     close(req->sock);
     goto cleanup;
   }
@@ -141,12 +141,12 @@ int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
   
   if (fwrite(&h, sizeof(h), 1, ipp->sock_fp) <= 0) {
     free(buf);
-    PyErr_Format(PyExc_IOError, "IOError: error writing to socket: %s", strerror(errno));
+    PyErr_Format(PyExc_IOError, "error writing to socket: %s", strerror(errno));
     return -1;
   }
   if (fwrite(buf, len, 1, ipp->sock_fp) <= 0) {
     free(buf);
-    PyErr_Format(PyExc_IOError, "IOError: error writing to socket: %s", strerror(errno));
+    PyErr_Format(PyExc_IOError, "error writing to socket: %s", strerror(errno));
     return -1;
   }
   free(buf);
@@ -162,7 +162,7 @@ PyObject * read_resultset(struct sock_request *ipp) {
 
   /* read the reply */
   if (fread(&h, sizeof(h), 1, ipp->sock_fp) <= 0) {
-    PyErr_Format(PyExc_IOError, "IOError: read_resultset: error reading from socket: %s", strerror(errno));
+    PyErr_Format(PyExc_IOError, "read_resultset: error reading from socket: %s", strerror(errno));
     return NULL;
   }
   len = ntohl(h.body_length);
@@ -170,13 +170,13 @@ PyObject * read_resultset(struct sock_request *ipp) {
   if (!reply) return NULL;;
   if (fread(reply, len, 1, ipp->sock_fp) <= 0) {
     free(reply);
-    PyErr_Format(PyExc_IOError, "IOError: read_resultset: error reading from socket: %s", strerror(errno));
+    PyErr_Format(PyExc_IOError, "read_resultset: error reading from socket: %s", strerror(errno));
     return NULL;
   }
   r = response__unpack(NULL, len, reply);
   free(reply);
   if (!r) {
-    PyErr_Format(PyExc_IOError, "IOError: read_resultset: error unpacking");
+    PyErr_Format(PyExc_IOError, "read_resultset: error unpacking");
     return NULL;
   }
 /*   printf("Received reply code: %i results: %li len: %i\n", */
@@ -236,7 +236,7 @@ PyObject *db_query(struct sock_request *ipp, unsigned long long streamid,
     return read_resultset(ipp);
   }
  write_error:
-  PyErr_Format(PyExc_IOError, "IOError: db_query: error writing: %s", strerror(errno));
+  PyErr_Format(PyExc_IOError, "db_query: error writing: %s", strerror(errno));
   return NULL;
 }
 
@@ -270,7 +270,7 @@ PyObject *db_iter(struct sock_request *ipp, int streamid,
   return read_resultset(ipp);
 
  write_error:
-  PyErr_Format(PyExc_IOError, "IOError: db_iter: error writing: %s", strerror(errno));
+  PyErr_Format(PyExc_IOError, "db_iter: error writing: %s", strerror(errno));
   return NULL;
 }
 

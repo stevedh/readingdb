@@ -48,6 +48,9 @@ elif sys.argv[1] == '-n':
         prev =  i - 3600 + (3600 - (i % 3600))
         if i % 3600 == 0: prev -= 3600
         assert d[0][0] == prev
+elif sys.argv[1] == '-s':
+    rdb.db_substream(db, 109)
+    print rdb.db_next(db, 2, 0)
 else:
     print "invalid argument"
 
