@@ -537,7 +537,7 @@ void commit_data(struct config *conf) {
             INCR_STAT(failed_adds);
           }
         }
-        FREELIST_PUT(struct ipc_command, dirty_data, val);
+        _rpc_free_rs(val);
       }
 
       debug("Syncing...\n");
@@ -805,6 +805,7 @@ void process_pbuf(struct sock_request *request) {
       }
       INCR_STAT(adds);
       add_enqueue(rs, &response);
+      reading_set__free_unpacked(rs, NULL);
       break;
     q_abort:
       reading_set__free_unpacked(rs, NULL);

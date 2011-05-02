@@ -13,7 +13,7 @@ AC_PROG_CC
 AM_PROG_CC_C_O
 AC_PROG_RANLIB
 
-PKG_CHECK_MODULES([CHECK], [check >= 0.9.4]) 
+# PKG_CHECK_MODULES([CHECK], [check >= 0.9.4]) 
 # Checks for libraries.
 
 # Checks for header files.
