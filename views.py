@@ -1,5 +1,5 @@
 # Create your views here.
-from django.http import HttpResponse
+from django.http import HttpResponse,HttpResponseBadRequest
 from django.db.models import Sum
 
 from models import *
