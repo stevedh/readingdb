@@ -2,11 +2,11 @@
 GPROF_FLAGS=-pg
 GCOV_FLAGS=-fprofile-arcs -ftest-coverage
 
-CFLAGS+=-I/usr/local/BerkeleyDB.4.8/include
-LDFLAGS+=-L/usr/local/BerkeleyDB.4.8/lib
+CFLAGS+=-I/usr/local/BerkeleyDB.4.8/include -I/opt/local/include/db48
+LDFLAGS+=-L/usr/local/BerkeleyDB.4.8/lib -L/opt/local/lib/db48
 
 CFLAGS+=-Wall -Ihashtable/src -O2
-LDFLAGS+=-ldb -lrt -lpthread -lprotobuf-c hashtable/src/libhashtable.a
+LDFLAGS+=-ldb -lpthread -lprotobuf-c hashtable/src/libhashtable.a
 TARGET=reading-server
 
 all: 

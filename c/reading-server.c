@@ -503,8 +503,14 @@ void commit_data(struct config *conf) {
   pthread_mutex_lock(&shutdown_lock);
   while (!done) {
     struct timespec sleep_time;
-    clock_gettime(CLOCK_REALTIME, &sleep_time);
-    sleep_time.tv_sec += conf->commit_interval;
+    //AAK: OS X does not support CLOCK_REALTIME
+    //clock_gettime(CLOCK_REALTIME, &sleep_time);
+    //sleep_time.tv_sec += conf->commit_interval;
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    sleep_time.tv_sec = tv.tv_sec + conf->commit_interval;
+    sleep_time.tv_nsec = 0;
+
     if (pthread_cond_timedwait(&shutdown_cond, &shutdown_lock, &sleep_time) == 0)
       done = 1;
 
