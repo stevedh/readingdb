@@ -626,6 +626,7 @@ void query_nearest(DB *dbp, Nearest *n, Response *rs) {
   unsigned long long starttime;
   int streamid, i;
   int direction = n->direction == NEAREST__DIRECTION__NEXT ? DB_NEXT : DB_PREV;
+  int ret_n = n->has_n ? min(MAXRECS, n->n) : 1;
 
   streamid = n->streamid;
   starttime = n->reference;
@@ -673,9 +674,9 @@ void query_nearest(DB *dbp, Nearest *n, Response *rs) {
           ((direction == DB_NEXT && bucket[i].timestamp > starttime) ||
            (direction == DB_PREV && bucket[i].timestamp < starttime))) {
         /* return */
-        _rpc_copy_reading(rs->data->data[0], &bucket[i]);
-        rs->data->n_data = 1;
-        goto done;
+        _rpc_copy_reading(rs->data->data[rs->data->n_data++], &bucket[i]);
+        if (rs->data->n_data >= ret_n)
+          goto done;
       } 
     }
 
@@ -829,7 +830,7 @@ void process_pbuf(struct sock_request *request) {
         goto abort;
       }
       response.error = RESPONSE__ERROR_CODE__FAIL_PARAM;
-      response.data = _rpc_alloc_rs(1);
+      response.data = _rpc_alloc_rs(n->has_n ? min(n->n, MAXRECS) : 1);
       if (!response.data) {
         response.error = RESPONSE__ERROR_CODE__FAIL_MEM;
         rpc_send_reply(request, &response);

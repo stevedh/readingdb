@@ -13,8 +13,8 @@ void db_close(struct sock_request *dbp);
 PyObject *db_query(struct sock_request *dbp, unsigned long long streamid, 
                    unsigned long long starttime, 
                    unsigned long long endtime) ;
-PyObject *db_next(struct sock_request *dbp, int streamid, unsigned long long reference);
-PyObject *db_prev(struct sock_request *dbp, int streamid, unsigned long long reference);
+PyObject *db_next(struct sock_request *dbp, int streamid, unsigned long long reference, int n);
+PyObject *db_prev(struct sock_request *dbp, int streamid, unsigned long long reference, int n);
 int db_add(struct sock_request *dbp, int streamid, PyObject *values);
 
 #endif

@@ -244,7 +244,7 @@ PyObject *db_query(struct sock_request *ipp, unsigned long long streamid,
 }
 
 PyObject *db_iter(struct sock_request *ipp, int streamid, 
-                  unsigned long long reference, int direction) {
+                  unsigned long long reference, int direction, int ret_n) {
   struct pbuf_header h;
   Nearest n = NEAREST__INIT;
   unsigned char buf[512];
@@ -254,6 +254,11 @@ PyObject *db_iter(struct sock_request *ipp, int streamid,
   n.substream = ipp->substream;
   n.reference = reference;
   n.direction = direction;
+
+  if (ret_n > 1) {
+    n.has_n = 1;
+    n.n = ret_n;
+  }
 
   if ((len = nearest__get_packed_size(&n)) > sizeof(buf)) {
     PyErr_SetString(PyExc_IOError, "db_next: generic error");
@@ -278,13 +283,13 @@ PyObject *db_iter(struct sock_request *ipp, int streamid,
 }
 
 PyObject *db_next(struct sock_request *ipp, int streamid, 
-                  unsigned long long reference) {
-  return db_iter(ipp, streamid, reference, NEAREST__DIRECTION__NEXT);
+                  unsigned long long reference, int n) {
+  return db_iter(ipp, streamid, reference, NEAREST__DIRECTION__NEXT, n);
 }
 
 PyObject *db_prev(struct sock_request *ipp, int streamid, 
-                  unsigned long long reference) {
-  return db_iter(ipp, streamid, reference, NEAREST__DIRECTION__PREV);
+                  unsigned long long reference, int n) {
+  return db_iter(ipp, streamid, reference, NEAREST__DIRECTION__PREV, n);
 }
 
 void db_close(struct sock_request *ipp) {

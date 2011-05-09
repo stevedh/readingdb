@@ -29,6 +29,7 @@ message Nearest {
     PREV = 2;
   } 
   required Direction direction = 4;
+  optional uint32 n = 5;             
 }
 
 message Response {

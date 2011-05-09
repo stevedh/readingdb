@@ -26,13 +26,13 @@ PyObject *db_query(struct sock_request *dbp, unsigned long long streamid,
   $action
   if (!result) return NULL;
 }
-PyObject * db_next(struct sock_request *dbp, int streamid, unsigned long long reference);
+PyObject * db_next(struct sock_request *dbp, int streamid, unsigned long long reference, int n = 1);
 
 %exception db_prev {
   $action
   if (!result) return NULL;
 }
-PyObject * db_prev(struct sock_request *dbp, int streamid, unsigned long long reference);
+PyObject * db_prev(struct sock_request *dbp, int streamid, unsigned long long reference, int n = 1);
 
 %exception db_add {
   $action

@@ -49,7 +49,7 @@ elif sys.argv[1] == '-n':
         if i % 3600 == 0: prev -= 3600
         assert d[0][0] == prev
 elif sys.argv[1] == '-s':
-    print rdb.db_next(db, 1, 0)
+    print rdb.db_prev(db, 1, 10, n=10)
 else:
     print "invalid argument"
 
