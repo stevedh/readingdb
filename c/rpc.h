@@ -7,6 +7,7 @@ void _rpc_copy_records(struct point *dest, Reading **src, int n);
 void _rpc_copy_reading(Reading *dest, struct point *src);
 ReadingSet *_rpc_alloc_rs(int n);
 void _rpc_free_rs(ReadingSet *rs);
+void _rpc_reverse_rs(ReadingSet *rs);
 void rpc_send_reply(struct sock_request *request, 
                     Response *response);
 

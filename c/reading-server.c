@@ -679,12 +679,15 @@ void query_nearest(DB *dbp, Nearest *n, Response *rs) {
           goto done;
       } 
     }
-
   next:
     ;
   } while (get_partial(cursorp, direction, &k, &v,
                        sizeof(struct rec_val), 0) == 0);
  done:
+  if (direction == DB_PREV) {
+    _rpc_reverse_rs(rs->data);
+  }
+
   cursorp->close(cursorp);
 }
 

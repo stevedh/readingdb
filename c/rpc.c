@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <arpa/inet.h>
+#include <string.h>
 
 #include "readingdb.h"
 #include "pbuf/rdb.pb-c.h"
@@ -79,6 +80,25 @@ void _rpc_free_rs(ReadingSet *rs) {
   free(rs->data[0]);
   free(rs->data);
   free(rs);
+}
+
+void _rpc_reverse_rs(ReadingSet *rs) {
+  int i;
+  for (i = 1; i < rs->n_data / 2; i++) {
+    Reading *tmp = rs->data[i];
+    rs->data[i] = rs->data[rs->n_data - i - 1];
+    rs->data[rs->n_data - i - 1] = tmp;
+  }
+  /* SDH : this is stupid */
+  /* since we allocated rs_alloc_rs, rs->data[0] needs to point to the
+     buffer we malloc'ed.  Therefore, we can't just swap pointers
+     there, we actually need to copy the reading. */
+  if (rs->n_data > 1) {
+    Reading tmp;
+    memcpy(&tmp, rs->data[0], sizeof(Reading));
+    memcpy(rs->data[0], rs->data[rs->n_data - 1], sizeof(Reading));
+    memcpy(rs->data[rs->n_data - 1], &tmp, sizeof(Reading));
+  }
 }
 
 int rpc_send_reply(struct sock_request *request, 
