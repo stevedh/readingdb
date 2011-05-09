@@ -7,6 +7,12 @@ from models import *
 import powerdb.readingdb.iface_bin.readingdb as rdb
 
 import json
+try:
+    import cjson
+    cjson_encode = cjson.encode
+except ImportError:
+    print "WARN: cjson not found, using standard json"
+    cjson_encode = json.dumps
 
 def availability(request, streamid):
     """Return a map of stream availability -- this is a list of ranges of
@@ -36,10 +42,11 @@ streamid.
     return HttpResponse(json.dumps(n['region_points__sum']),
                                    content_type='application/json')
 
-def iterate(request, streamid, substream, direction, reference):
+def iterate(request, streamid, substream, direction, reference, n=1):
     """Given the input values, find the next point (before or after) the
 specified reference time.
     """
+    n = int(request.GET.get('n', 1))
     streamid = int(streamid)
     substream = int(substream)
     reference = int(reference)
@@ -53,8 +60,9 @@ specified reference time.
     
     db = rdb.db_open()
     rdb.db_substream(db, substream)
-    val = fn(db, streamid, reference)
+    val = fn(db, streamid, reference, n=n)
     rdb.db_close(db)
 
-    return HttpResponse(json.dumps(val),
-                        content_type='application/json')
+    response = HttpResponse(content_type='application/json')
+    response.write(cjson_encode(val))
+    return response
