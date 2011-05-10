@@ -33,6 +33,7 @@ struct config {
   char data_dir[FILENAME_MAX];
   unsigned short port;
   int cache_size;
+  int no_hash_buffer;
 };
 struct config conf;
 
@@ -121,6 +122,7 @@ void default_config(struct config *c) {
   strcpy(c->data_dir, DATA_DIR);
   c->port = 4242;
   c->cache_size = 32;
+  c->no_hash_buffer = 0;
 }
 
 void db_open(struct config *conf) {
@@ -435,41 +437,42 @@ int add_enqueue(ReadingSet *rs, Response *reply) {
   unsigned long long key;
   ReadingSet *points;
 
-  debug("add_enqueue\n");
+  if (!conf.no_hash_buffer) {
+    if (pthread_mutex_lock(&dbs[rs->substream].lock) != 0)
+      return -1;
 
-  if (pthread_mutex_lock(&dbs[rs->substream].lock) != 0)
-    return -1;
+    key = rs->streamid;
+    points = hashtable_search(dbs[rs->substream].dirty_data, &key);
+    if (points == NULL) {
+      unsigned long long *new_key = malloc(sizeof(unsigned long long));
+      if (!new_key)
+        goto fail;
+      
+      points = _rpc_alloc_rs(SMALL_POINTS);
+      if (!points) {
+        free(new_key);
+        goto fail;
+      }
+      debug("creating new hashtable entry dbid: %i streamid: %i\n", 
+            rs->substream, rs->streamid);
 
-  key = rs->streamid;
-  points = hashtable_search(dbs[rs->substream].dirty_data, &key);
-  if (points == NULL) {
-    unsigned long long *new_key = malloc(sizeof(unsigned long long));
-    if (!new_key)
-      goto fail;
+      points->streamid = rs->streamid;
+      points->substream = rs->substream;
+      *new_key = rs->streamid;
 
-    points = _rpc_alloc_rs(SMALL_POINTS);
-    if (!points) {
-      free(new_key);
-      goto fail;
-    }
-    debug("creating new hashtable entry dbid: %i streamid: %i\n", 
-          rs->substream, rs->streamid);
-
-    points->streamid = rs->streamid;
-    points->substream = rs->substream;
-    *new_key = rs->streamid;
-
-    if (!hashtable_insert(dbs[rs->substream].dirty_data, new_key, points)) {
-      free(new_key);
-      FREELIST_PUT(struct ipc_command, dirty_data, points);
-      goto fail;
+      if (!hashtable_insert(dbs[rs->substream].dirty_data, new_key, points)) {
+        free(new_key);
+        FREELIST_PUT(struct ipc_command, dirty_data, points);
+        goto fail;
+      }
     }
   }
-  if (rs->n_data > SMALL_POINTS - points->n_data) {
+  if (conf.no_hash_buffer || rs->n_data > SMALL_POINTS - points->n_data) {
     /* do big adds directly */
-    info("writing data directly: streamid: %li n: %i\n",
+    debug("writing data directly: streamid: %li n: %i\n",
          key, rs->n_data);
-    pthread_mutex_unlock(&dbs[rs->substream].lock);
+    if (!conf.no_hash_buffer)
+      pthread_mutex_unlock(&dbs[rs->substream].lock);
 
     if (add(dbs[rs->substream].dbp, rs) < 0) {
       sleep(rand() % 1 );
@@ -491,7 +494,8 @@ int add_enqueue(ReadingSet *rs, Response *reply) {
   }
   return 0;
  fail:
-  pthread_mutex_unlock(&dbs[rs->substream].lock);
+  if (!conf.no_hash_buffer)
+    pthread_mutex_unlock(&dbs[rs->substream].lock);
   return -1;
 }
 
@@ -699,14 +703,15 @@ void usage(char *progname) {
           "\t\t-d <datadir>       set data directory\n"
           "\t\t-c <interval>      set commit interval\n"
           "\t\t-p <port>          local port to bind to\n"
-          "\t\t-s <cache size>    cache size (MB)\n\n",
+          "\t\t-s <cache size>    cache size (MB)\n"
+          "\t\t-n                 no-hash-buffer\n\n",
           progname);
 }
 
 int optparse(int argc, char **argv, struct config *c) {
   char o;
   char *endptr;
-  while ((o = getopt(argc, argv, "vhd:c:p:s:")) != -1) {
+  while ((o = getopt(argc, argv, "vnhd:c:p:s:")) != -1) {
     switch (o) {
     case 'h':
       usage(argv[0]);
@@ -742,6 +747,10 @@ int optparse(int argc, char **argv, struct config *c) {
         fatal("Invalid port\n");
         return -1;
       }
+      break;
+    case 'n':
+      info("Not using hashed buffer layer for adds\n");
+      c->no_hash_buffer = 1;
       break;
     }
   }
