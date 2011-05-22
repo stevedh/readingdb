@@ -14,6 +14,7 @@
 # PARTICULAR PURPOSE.
 
 @SET_MAKE@
+
 VPATH = @srcdir@
 pkgdatadir = $(datadir)/@PACKAGE@
 pkgincludedir = $(includedir)/@PACKAGE@
@@ -31,6 +32,7 @@ POST_INSTALL = :
 NORMAL_UNINSTALL = :
 PRE_UNINSTALL = :
 POST_UNINSTALL = :
+bin_PROGRAMS = reading-server$(EXEEXT)
 subdir = .
 DIST_COMMON = README $(am__configure_deps) $(srcdir)/Makefile.am \
 	$(srcdir)/Makefile.in $(srcdir)/config.h.in \
@@ -46,8 +48,29 @@ mkinstalldirs = $(install_sh) -d
 CONFIG_HEADER = config.h
 CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
-SOURCES =
-DIST_SOURCES =
+am__installdirs = "$(DESTDIR)$(bindir)"
+PROGRAMS = $(bin_PROGRAMS)
+am_reading_server_OBJECTS = reading_server-util.$(OBJEXT) \
+	reading_server-util-db.$(OBJEXT) \
+	reading_server-reading-server.$(OBJEXT) \
+	reading_server-logging.$(OBJEXT) \
+	reading_server-stats-sock.$(OBJEXT) \
+	reading_server-rpc.$(OBJEXT) reading_server-rdb.pb-c.$(OBJEXT) \
+	reading_server-compress.$(OBJEXT)
+reading_server_OBJECTS = $(am_reading_server_OBJECTS)
+reading_server_DEPENDENCIES = hashtable/src/libhashtable.a
+reading_server_LINK = $(CCLD) $(reading_server_CFLAGS) $(CFLAGS) \
+	$(reading_server_LDFLAGS) $(LDFLAGS) -o $@
+DEFAULT_INCLUDES = -I.@am__isrc@
+depcomp = $(SHELL) $(top_srcdir)/depcomp
+am__depfiles_maybe = depfiles
+am__mv = mv -f
+COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
+	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
+CCLD = $(CC)
+LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
+SOURCES = $(reading_server_SOURCES)
+DIST_SOURCES = $(reading_server_SOURCES)
 RECURSIVE_TARGETS = all-recursive check-recursive dvi-recursive \
 	html-recursive info-recursive install-data-recursive \
 	install-dvi-recursive install-exec-recursive \
@@ -139,6 +162,7 @@ PACKAGE_TARNAME = @PACKAGE_TARNAME@
 PACKAGE_URL = @PACKAGE_URL@
 PACKAGE_VERSION = @PACKAGE_VERSION@
 PATH_SEPARATOR = @PATH_SEPARATOR@
+PROTOC = @PROTOC@
 RANLIB = @RANLIB@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
@@ -181,16 +205,24 @@ psdir = @psdir@
 sbindir = @sbindir@
 sharedstatedir = @sharedstatedir@
 srcdir = @srcdir@
+subdirs = @subdirs@
 sysconfdir = @sysconfdir@
 target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-SUBDIRS = src . tests
+SUBDIRS = hashtable pbuf
+reading_server_LDFLAGS = -ldb -lpthread -lprotobuf-c -lz
+reading_server_LDADD = hashtable/src/libhashtable.a
+reading_server_CFLAGS = -Ihashtable/src
+reading_server_SOURCES = util.c util-db.c reading-server.c logging.c stats-sock.c \
+	rpc.c pbuf/rdb.pb-c.c compress.c
+
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
 
 .SUFFIXES:
+.SUFFIXES: .c .o .obj
 am--refresh:
 	@:
 $(srcdir)/Makefile.in:  $(srcdir)/Makefile.am  $(am__configure_deps)
@@ -242,6 +274,187 @@ $(srcdir)/config.h.in:  $(am__configure_deps)
 
 distclean-hdr:
 	-rm -f config.h stamp-h1
+install-binPROGRAMS: $(bin_PROGRAMS)
+	@$(NORMAL_INSTALL)
+	test -z "$(bindir)" || $(MKDIR_P) "$(DESTDIR)$(bindir)"
+	@list='$(bin_PROGRAMS)'; test -n "$(bindir)" || list=; \
+	for p in $$list; do echo "$$p $$p"; done | \
+	sed 's/$(EXEEXT)$$//' | \
+	while read p p1; do if test -f $$p; \
+	  then echo "$$p"; echo "$$p"; else :; fi; \
+	done | \
+	sed -e 'p;s,.*/,,;n;h' -e 's|.*|.|' \
+	    -e 'p;x;s,.*/,,;s/$(EXEEXT)$$//;$(transform);s/$$/$(EXEEXT)/' | \
+	sed 'N;N;N;s,\n, ,g' | \
+	$(AWK) 'BEGIN { files["."] = ""; dirs["."] = 1 } \
+	  { d=$$3; if (dirs[d] != 1) { print "d", d; dirs[d] = 1 } \
+	    if ($$2 == $$4) files[d] = files[d] " " $$1; \
+	    else { print "f", $$3 "/" $$4, $$1; } } \
+	  END { for (d in files) print "f", d, files[d] }' | \
+	while read type dir files; do \
+	    if test "$$dir" = .; then dir=; else dir=/$$dir; fi; \
+	    test -z "$$files" || { \
+	      echo " $(INSTALL_PROGRAM_ENV) $(INSTALL_PROGRAM) $$files '$(DESTDIR)$(bindir)$$dir'"; \
+	      $(INSTALL_PROGRAM_ENV) $(INSTALL_PROGRAM) $$files "$(DESTDIR)$(bindir)$$dir" || exit $$?; \
+	    } \
+	; done
+
+uninstall-binPROGRAMS:
+	@$(NORMAL_UNINSTALL)
+	@list='$(bin_PROGRAMS)'; test -n "$(bindir)" || list=; \
+	files=`for p in $$list; do echo "$$p"; done | \
+	  sed -e 'h;s,^.*/,,;s/$(EXEEXT)$$//;$(transform)' \
+	      -e 's/$$/$(EXEEXT)/' `; \
+	test -n "$$list" || exit 0; \
+	echo " ( cd '$(DESTDIR)$(bindir)' && rm -f" $$files ")"; \
+	cd "$(DESTDIR)$(bindir)" && rm -f $$files
+
+clean-binPROGRAMS:
+	-test -z "$(bin_PROGRAMS)" || rm -f $(bin_PROGRAMS)
+reading-server$(EXEEXT): $(reading_server_OBJECTS) $(reading_server_DEPENDENCIES) 
+	@rm -f reading-server$(EXEEXT)
+	$(reading_server_LINK) $(reading_server_OBJECTS) $(reading_server_LDADD) $(LIBS)
+
+mostlyclean-compile:
+	-rm -f *.$(OBJEXT)
+
+distclean-compile:
+	-rm -f *.tab.c
+
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/reading_server-compress.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/reading_server-logging.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/reading_server-rdb.pb-c.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/reading_server-reading-server.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/reading_server-rpc.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/reading_server-stats-sock.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/reading_server-util-db.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/reading_server-util.Po@am__quote@
+
+.c.o:
+@am__fastdepCC_TRUE@	$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$<' object='$@' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(COMPILE) -c $<
+
+.c.obj:
+@am__fastdepCC_TRUE@	$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ `$(CYGPATH_W) '$<'`
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='$<' object='$@' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(COMPILE) -c `$(CYGPATH_W) '$<'`
+
+reading_server-util.o: util.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -MT reading_server-util.o -MD -MP -MF $(DEPDIR)/reading_server-util.Tpo -c -o reading_server-util.o `test -f 'util.c' || echo '$(srcdir)/'`util.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/reading_server-util.Tpo $(DEPDIR)/reading_server-util.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='util.c' object='reading_server-util.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -c -o reading_server-util.o `test -f 'util.c' || echo '$(srcdir)/'`util.c
+
+reading_server-util.obj: util.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -MT reading_server-util.obj -MD -MP -MF $(DEPDIR)/reading_server-util.Tpo -c -o reading_server-util.obj `if test -f 'util.c'; then $(CYGPATH_W) 'util.c'; else $(CYGPATH_W) '$(srcdir)/util.c'; fi`
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/reading_server-util.Tpo $(DEPDIR)/reading_server-util.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='util.c' object='reading_server-util.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -c -o reading_server-util.obj `if test -f 'util.c'; then $(CYGPATH_W) 'util.c'; else $(CYGPATH_W) '$(srcdir)/util.c'; fi`
+
+reading_server-util-db.o: util-db.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -MT reading_server-util-db.o -MD -MP -MF $(DEPDIR)/reading_server-util-db.Tpo -c -o reading_server-util-db.o `test -f 'util-db.c' || echo '$(srcdir)/'`util-db.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/reading_server-util-db.Tpo $(DEPDIR)/reading_server-util-db.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='util-db.c' object='reading_server-util-db.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -c -o reading_server-util-db.o `test -f 'util-db.c' || echo '$(srcdir)/'`util-db.c
+
+reading_server-util-db.obj: util-db.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -MT reading_server-util-db.obj -MD -MP -MF $(DEPDIR)/reading_server-util-db.Tpo -c -o reading_server-util-db.obj `if test -f 'util-db.c'; then $(CYGPATH_W) 'util-db.c'; else $(CYGPATH_W) '$(srcdir)/util-db.c'; fi`
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/reading_server-util-db.Tpo $(DEPDIR)/reading_server-util-db.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='util-db.c' object='reading_server-util-db.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -c -o reading_server-util-db.obj `if test -f 'util-db.c'; then $(CYGPATH_W) 'util-db.c'; else $(CYGPATH_W) '$(srcdir)/util-db.c'; fi`
+
+reading_server-reading-server.o: reading-server.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -MT reading_server-reading-server.o -MD -MP -MF $(DEPDIR)/reading_server-reading-server.Tpo -c -o reading_server-reading-server.o `test -f 'reading-server.c' || echo '$(srcdir)/'`reading-server.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/reading_server-reading-server.Tpo $(DEPDIR)/reading_server-reading-server.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='reading-server.c' object='reading_server-reading-server.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -c -o reading_server-reading-server.o `test -f 'reading-server.c' || echo '$(srcdir)/'`reading-server.c
+
+reading_server-reading-server.obj: reading-server.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -MT reading_server-reading-server.obj -MD -MP -MF $(DEPDIR)/reading_server-reading-server.Tpo -c -o reading_server-reading-server.obj `if test -f 'reading-server.c'; then $(CYGPATH_W) 'reading-server.c'; else $(CYGPATH_W) '$(srcdir)/reading-server.c'; fi`
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/reading_server-reading-server.Tpo $(DEPDIR)/reading_server-reading-server.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='reading-server.c' object='reading_server-reading-server.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -c -o reading_server-reading-server.obj `if test -f 'reading-server.c'; then $(CYGPATH_W) 'reading-server.c'; else $(CYGPATH_W) '$(srcdir)/reading-server.c'; fi`
+
+reading_server-logging.o: logging.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -MT reading_server-logging.o -MD -MP -MF $(DEPDIR)/reading_server-logging.Tpo -c -o reading_server-logging.o `test -f 'logging.c' || echo '$(srcdir)/'`logging.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/reading_server-logging.Tpo $(DEPDIR)/reading_server-logging.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='logging.c' object='reading_server-logging.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -c -o reading_server-logging.o `test -f 'logging.c' || echo '$(srcdir)/'`logging.c
+
+reading_server-logging.obj: logging.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -MT reading_server-logging.obj -MD -MP -MF $(DEPDIR)/reading_server-logging.Tpo -c -o reading_server-logging.obj `if test -f 'logging.c'; then $(CYGPATH_W) 'logging.c'; else $(CYGPATH_W) '$(srcdir)/logging.c'; fi`
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/reading_server-logging.Tpo $(DEPDIR)/reading_server-logging.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='logging.c' object='reading_server-logging.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -c -o reading_server-logging.obj `if test -f 'logging.c'; then $(CYGPATH_W) 'logging.c'; else $(CYGPATH_W) '$(srcdir)/logging.c'; fi`
+
+reading_server-stats-sock.o: stats-sock.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -MT reading_server-stats-sock.o -MD -MP -MF $(DEPDIR)/reading_server-stats-sock.Tpo -c -o reading_server-stats-sock.o `test -f 'stats-sock.c' || echo '$(srcdir)/'`stats-sock.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/reading_server-stats-sock.Tpo $(DEPDIR)/reading_server-stats-sock.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='stats-sock.c' object='reading_server-stats-sock.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -c -o reading_server-stats-sock.o `test -f 'stats-sock.c' || echo '$(srcdir)/'`stats-sock.c
+
+reading_server-stats-sock.obj: stats-sock.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -MT reading_server-stats-sock.obj -MD -MP -MF $(DEPDIR)/reading_server-stats-sock.Tpo -c -o reading_server-stats-sock.obj `if test -f 'stats-sock.c'; then $(CYGPATH_W) 'stats-sock.c'; else $(CYGPATH_W) '$(srcdir)/stats-sock.c'; fi`
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/reading_server-stats-sock.Tpo $(DEPDIR)/reading_server-stats-sock.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='stats-sock.c' object='reading_server-stats-sock.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -c -o reading_server-stats-sock.obj `if test -f 'stats-sock.c'; then $(CYGPATH_W) 'stats-sock.c'; else $(CYGPATH_W) '$(srcdir)/stats-sock.c'; fi`
+
+reading_server-rpc.o: rpc.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -MT reading_server-rpc.o -MD -MP -MF $(DEPDIR)/reading_server-rpc.Tpo -c -o reading_server-rpc.o `test -f 'rpc.c' || echo '$(srcdir)/'`rpc.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/reading_server-rpc.Tpo $(DEPDIR)/reading_server-rpc.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='rpc.c' object='reading_server-rpc.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -c -o reading_server-rpc.o `test -f 'rpc.c' || echo '$(srcdir)/'`rpc.c
+
+reading_server-rpc.obj: rpc.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -MT reading_server-rpc.obj -MD -MP -MF $(DEPDIR)/reading_server-rpc.Tpo -c -o reading_server-rpc.obj `if test -f 'rpc.c'; then $(CYGPATH_W) 'rpc.c'; else $(CYGPATH_W) '$(srcdir)/rpc.c'; fi`
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/reading_server-rpc.Tpo $(DEPDIR)/reading_server-rpc.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='rpc.c' object='reading_server-rpc.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -c -o reading_server-rpc.obj `if test -f 'rpc.c'; then $(CYGPATH_W) 'rpc.c'; else $(CYGPATH_W) '$(srcdir)/rpc.c'; fi`
+
+reading_server-rdb.pb-c.o: pbuf/rdb.pb-c.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -MT reading_server-rdb.pb-c.o -MD -MP -MF $(DEPDIR)/reading_server-rdb.pb-c.Tpo -c -o reading_server-rdb.pb-c.o `test -f 'pbuf/rdb.pb-c.c' || echo '$(srcdir)/'`pbuf/rdb.pb-c.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/reading_server-rdb.pb-c.Tpo $(DEPDIR)/reading_server-rdb.pb-c.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='pbuf/rdb.pb-c.c' object='reading_server-rdb.pb-c.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -c -o reading_server-rdb.pb-c.o `test -f 'pbuf/rdb.pb-c.c' || echo '$(srcdir)/'`pbuf/rdb.pb-c.c
+
+reading_server-rdb.pb-c.obj: pbuf/rdb.pb-c.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -MT reading_server-rdb.pb-c.obj -MD -MP -MF $(DEPDIR)/reading_server-rdb.pb-c.Tpo -c -o reading_server-rdb.pb-c.obj `if test -f 'pbuf/rdb.pb-c.c'; then $(CYGPATH_W) 'pbuf/rdb.pb-c.c'; else $(CYGPATH_W) '$(srcdir)/pbuf/rdb.pb-c.c'; fi`
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/reading_server-rdb.pb-c.Tpo $(DEPDIR)/reading_server-rdb.pb-c.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='pbuf/rdb.pb-c.c' object='reading_server-rdb.pb-c.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -c -o reading_server-rdb.pb-c.obj `if test -f 'pbuf/rdb.pb-c.c'; then $(CYGPATH_W) 'pbuf/rdb.pb-c.c'; else $(CYGPATH_W) '$(srcdir)/pbuf/rdb.pb-c.c'; fi`
+
+reading_server-compress.o: compress.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -MT reading_server-compress.o -MD -MP -MF $(DEPDIR)/reading_server-compress.Tpo -c -o reading_server-compress.o `test -f 'compress.c' || echo '$(srcdir)/'`compress.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/reading_server-compress.Tpo $(DEPDIR)/reading_server-compress.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='compress.c' object='reading_server-compress.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -c -o reading_server-compress.o `test -f 'compress.c' || echo '$(srcdir)/'`compress.c
+
+reading_server-compress.obj: compress.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -MT reading_server-compress.obj -MD -MP -MF $(DEPDIR)/reading_server-compress.Tpo -c -o reading_server-compress.obj `if test -f 'compress.c'; then $(CYGPATH_W) 'compress.c'; else $(CYGPATH_W) '$(srcdir)/compress.c'; fi`
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/reading_server-compress.Tpo $(DEPDIR)/reading_server-compress.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='compress.c' object='reading_server-compress.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(reading_server_CFLAGS) $(CFLAGS) -c -o reading_server-compress.obj `if test -f 'compress.c'; then $(CYGPATH_W) 'compress.c'; else $(CYGPATH_W) '$(srcdir)/compress.c'; fi`
 
 # This directory's subdirectories are mostly independent; you can cd
 # into them and run `make' without going through this Makefile.
@@ -555,9 +768,12 @@ distcleancheck: distclean
 	       exit 1; } >&2
 check-am: all-am
 check: check-recursive
-all-am: Makefile config.h
+all-am: Makefile $(PROGRAMS) config.h
 installdirs: installdirs-recursive
 installdirs-am:
+	for dir in "$(DESTDIR)$(bindir)"; do \
+	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
+	done
 install: install-recursive
 install-exec: install-exec-recursive
 install-data: install-data-recursive
@@ -585,12 +801,14 @@ maintainer-clean-generic:
 	@echo "it deletes files that may require special tools to rebuild."
 clean: clean-recursive
 
-clean-am: clean-generic mostlyclean-am
+clean-am: clean-binPROGRAMS clean-generic mostlyclean-am
 
 distclean: distclean-recursive
 	-rm -f $(am__CONFIG_DISTCLEAN_FILES)
+	-rm -rf ./$(DEPDIR)
 	-rm -f Makefile
-distclean-am: clean-am distclean-generic distclean-hdr distclean-tags
+distclean-am: clean-am distclean-compile distclean-generic \
+	distclean-hdr distclean-tags
 
 dvi: dvi-recursive
 
@@ -610,7 +828,7 @@ install-dvi: install-dvi-recursive
 
 install-dvi-am:
 
-install-exec-am:
+install-exec-am: install-binPROGRAMS
 
 install-html: install-html-recursive
 
@@ -635,12 +853,13 @@ installcheck-am:
 maintainer-clean: maintainer-clean-recursive
 	-rm -f $(am__CONFIG_DISTCLEAN_FILES)
 	-rm -rf $(top_srcdir)/autom4te.cache
+	-rm -rf ./$(DEPDIR)
 	-rm -f Makefile
 maintainer-clean-am: distclean-am maintainer-clean-generic
 
 mostlyclean: mostlyclean-recursive
 
-mostlyclean-am: mostlyclean-generic
+mostlyclean-am: mostlyclean-compile mostlyclean-generic
 
 pdf: pdf-recursive
 
@@ -650,26 +869,32 @@ ps: ps-recursive
 
 ps-am:
 
-uninstall-am:
+uninstall-am: uninstall-binPROGRAMS
 
 .MAKE: $(RECURSIVE_CLEAN_TARGETS) $(RECURSIVE_TARGETS) all \
 	ctags-recursive install-am install-strip tags-recursive
 
 .PHONY: $(RECURSIVE_CLEAN_TARGETS) $(RECURSIVE_TARGETS) CTAGS GTAGS \
-	all all-am am--refresh check check-am clean clean-generic \
-	ctags ctags-recursive dist dist-all dist-bzip2 dist-gzip \
-	dist-lzma dist-shar dist-tarZ dist-xz dist-zip distcheck \
-	distclean distclean-generic distclean-hdr distclean-tags \
-	distcleancheck distdir distuninstallcheck dvi dvi-am html \
-	html-am info info-am install install-am install-data \
+	all all-am am--refresh check check-am clean clean-binPROGRAMS \
+	clean-generic ctags ctags-recursive dist dist-all dist-bzip2 \
+	dist-gzip dist-lzma dist-shar dist-tarZ dist-xz dist-zip \
+	distcheck distclean distclean-compile distclean-generic \
+	distclean-hdr distclean-tags distcleancheck distdir \
+	distuninstallcheck dvi dvi-am html html-am info info-am \
+	install install-am install-binPROGRAMS install-data \
 	install-data-am install-dvi install-dvi-am install-exec \
 	install-exec-am install-html install-html-am install-info \
 	install-info-am install-man install-pdf install-pdf-am \
 	install-ps install-ps-am install-strip installcheck \
 	installcheck-am installdirs installdirs-am maintainer-clean \
-	maintainer-clean-generic mostlyclean mostlyclean-generic pdf \
-	pdf-am ps ps-am tags tags-recursive uninstall uninstall-am
+	maintainer-clean-generic mostlyclean mostlyclean-compile \
+	mostlyclean-generic pdf pdf-am ps ps-am tags tags-recursive \
+	uninstall uninstall-am uninstall-binPROGRAMS
 
+
+# noinst_PROGRAMS = compress
+# compress_SOURCES = compress.c pbuf/rdb.pb-c.c rpc.c util.c logging.c
+# compress_LDFLAGS = -lprotobuf-c -lz
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.

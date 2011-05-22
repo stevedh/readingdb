@@ -46,7 +46,6 @@ int bucket_sizes[NBUCKETSIZES] = {60 * 5,  /* five minutes */
 
 sig_atomic_t do_shutdown = 0;
 void sig_shutdown(int arg) {
-  printf("wants to shutdown\n");
   do_shutdown = 1;
 }
 void signal_setup() {
@@ -104,8 +103,6 @@ struct stats stats = {0, 0, 0};
     stats.STAT ++;                                             \
     pthread_mutex_unlock(&stats_lock); }
 
-
-
 unsigned int hash_streamid(void *streamid) {
   unsigned long long *v = streamid;
   return *v;
@@ -157,7 +154,7 @@ void db_open(struct config *conf) {
   }
 
   for (i = 0; i < MAX_SUBSTREAMS; i++) {
-    oflags = DB_CREATE | DB_THREAD | DB_AUTO_COMMIT | DB_READ_UNCOMMITTED;
+    oflags = DB_CREATE | DB_THREAD | DB_AUTO_COMMIT;
 
     snprintf(dbs[i].dbfile, sizeof(dbs[i].dbfile), "readings-%i.db", i);
     info("Opening '%s'\n", dbs[i].dbfile);
@@ -175,7 +172,7 @@ void db_open(struct config *conf) {
     if ((ret = dbs[i].dbp->set_pagesize(dbs[i].dbp, DEFAULT_PAGESIZE)) != 0) {
       warn("set_pagesize: dbid: %i: %s\n", i, db_strerror(ret));
     }
-    
+
     if ((ret = dbs[i].dbp->open(dbs[i].dbp,
                                 NULL, dbs[i].dbfile, NULL, 
                                 DB_BTREE, oflags, 0644)) != 0) {
@@ -233,9 +230,10 @@ int get_bucket(DBC *cursorp, struct rec_key *k, struct rec_val *v) {
 int split_bucket(DB *dbp, DBC *cursorp, DB_TXN *tid, struct rec_key *k) {
   int ret, i, new_bucket_idx = -1, data_start_idx;
   char buf[POINT_OFF(MAXBUCKETRECS + NBUCKETSIZES)];
+  char new_buf[POINT_OFF(MAXBUCKETRECS + NBUCKETSIZES)];
   struct rec_val *v = (struct rec_val *)buf;
   struct rec_key new_k;
-  struct rec_val new_v;
+  struct rec_val *new_v = (struct rec_val *)new_buf;
   
   if ((ret = get(cursorp, DB_SET, k, buf, sizeof(buf))) < 0) {
     error("error reading full bucket into memory for split (%s)!\n", db_strerror(ret));
@@ -254,38 +252,40 @@ int split_bucket(DB *dbp, DBC *cursorp, DB_TXN *tid, struct rec_key *k) {
 
   new_k.stream_id = k->stream_id;
   new_k.timestamp = k->timestamp;
-  new_v.n_valid = 0;
-  new_v.period_length = bucket_sizes[new_bucket_idx];
-  new_v.tail_timestamp = 0;
+  new_v->n_valid = 0;
+  new_v->period_length = bucket_sizes[new_bucket_idx];
+  new_v->tail_timestamp = 0;
   data_start_idx = 0;
   info("Spliting up %i records\n", v->n_valid);
   for (i = 0; i <= v->n_valid; i++) {
     if (i < v->n_valid &&
-        v->data[i].timestamp < new_k.timestamp + new_v.period_length) {
+        v->data[i].timestamp < new_k.timestamp + new_v->period_length) {
     } else {
       /* commit the old data under the new key */
-      new_v.n_valid = i - data_start_idx;
-      new_v.tail_timestamp = v->data[i-1].timestamp;
+      new_v->n_valid = i - data_start_idx;
+      new_v->tail_timestamp = v->data[i-1].timestamp;
 
       info("writing new bucket anchor 0x%x size %i nvalid %i idx: %i\n", 
-           new_k.timestamp, new_v.period_length, new_v.n_valid, data_start_idx);
-      debug(" extra info [%i] %i %i\n", i, new_v.tail_timestamp, v->data[i-1].timestamp);
-      if (put(dbp, tid, &new_k, &new_v, sizeof(new_v)) < 0)
-        return -1;
+           new_k.timestamp, new_v->period_length, new_v->n_valid, data_start_idx);
+      debug(" extra info [%i] %i %i\n", i, new_v->tail_timestamp, v->data[i-1].timestamp);
 
       if (i > data_start_idx) {
-        if (put_partial(dbp, tid, &new_k, buf + POINT_OFF(data_start_idx), 
-                        POINT_OFF(i) - POINT_OFF(data_start_idx),
-                        sizeof(struct rec_val)) < 0)
-          return -1;
+        /* copy the data into the new bucket */
+        memcpy(new_buf + POINT_OFF(0), buf + POINT_OFF(data_start_idx),
+               POINT_OFF(i) - POINT_OFF(data_start_idx));
+      }
+
+      if (put(dbp, tid, &new_k, new_v, POINT_OFF(i - data_start_idx)) < 0) {
+        warn("put failed\n");
+        return -1;
       }
 
       if (i < v->n_valid) {
         /* start a new key */
         new_k.timestamp = v->data[i].timestamp - 
           (v->data[i].timestamp % bucket_sizes[new_bucket_idx]);
-        new_v.n_valid = 0;
-        new_v.tail_timestamp = 0;
+        new_v->n_valid = 0;
+        new_v->tail_timestamp = 0;
         data_start_idx = i;
       }
     }
@@ -299,9 +299,10 @@ int add(DB *dbp, ReadingSet *rs) {
   struct rec_key cur_k;
   struct rec_val cur_v;
   DB_TXN *tid = NULL;
-  unsigned char buf[sizeof(struct rec_val) + POINT_OFF(MAXBUCKETRECS + NBUCKETSIZES)];
+  unsigned char buf[POINT_OFF(MAXBUCKETRECS + NBUCKETSIZES)];
   struct rec_val *v = (struct rec_val *)buf;
   struct point *rec_data = v->data;
+  bool_t bucket_dirty = FALSE, bucket_valid = FALSE;
 
   bzero(&cur_k, sizeof(cur_k));
   bzero(&cur_v, sizeof(cur_v));
@@ -322,13 +323,13 @@ int add(DB *dbp, ReadingSet *rs) {
 
   for (cur_rec = 0; cur_rec < rs->n_data; cur_rec++) {
     debug("Adding reading ts: 0x%x\n", rs->data[cur_rec]->timestamp);
-
-    if (cur_v.n_valid > 0 &&
+    if (bucket_valid &&
+        v->n_valid > 0 &&
         cur_k.stream_id == rs->streamid &&
         cur_k.timestamp <= rs->data[cur_rec]->timestamp &&
-        cur_k.timestamp + cur_v.period_length > rs->data[cur_rec]->timestamp) {
+        cur_k.timestamp + v->period_length > rs->data[cur_rec]->timestamp) {
       /* we're already in the right bucket; don't need to do anything */
-      debug("In valid bucket.  n_valid: %i\n", cur_v.n_valid);
+      debug("In valid bucket.  n_valid: %i\n", v->n_valid);
     } else {
       /* need to find the right bucket */
       debug("Looking up bucket\n");
@@ -339,85 +340,83 @@ int add(DB *dbp, ReadingSet *rs) {
         /* create a new bucket */
 
         /* the key has been updated by get_bucket */
-        cur_v.n_valid = 0;
-        cur_v.period_length = bucket_sizes[-ret];
-        cur_v.tail_timestamp = 0;
-        debug("Created new bucket anchor: %i length: %i\n", cur_k.timestamp, cur_v.period_length);
+        v->n_valid = 0;
+        v->period_length = bucket_sizes[-ret];
+        v->tail_timestamp = 0;
+        debug("Created new bucket anchor: %i length: %i\n", cur_k.timestamp, v->period_length);
       } else {
         debug("Found existing bucket streamid: %i anchor: %i length: %i\n", 
-              cur_k.stream_id, cur_k.timestamp, cur_v.period_length);
+              cur_k.stream_id, cur_k.timestamp, v->period_length);
+        if ((ret = get(cursorp, DB_SET | DB_RMW, &cur_k, v, sizeof(buf))) < 0) {
+          warn("error reading bucket: %s\n", db_strerror(ret));
+          goto abort;
+        }
       }
+      bucket_valid = TRUE;
     }
 
+    debug("v->: tail_timestamp: %i n_valid: %i\n", v->tail_timestamp, v->n_valid);
     /* start the insert -- we're in the current bucket */
-    if (cur_v.tail_timestamp < rs->data[cur_rec]->timestamp ||
-        cur_v.n_valid == 0) {
+    if (v->tail_timestamp < rs->data[cur_rec]->timestamp ||
+        v->n_valid == 0) {
       /* if it's an append or a new bucket we can just write the values */
       /* update the header block */
-      cur_v.tail_timestamp = rs->data[cur_rec]->timestamp;
-      cur_v.n_valid++;
-      if (put_partial(dbp, tid, &cur_k, &cur_v, sizeof(cur_v), 0) < 0)
-        goto abort;
+      v->tail_timestamp = rs->data[cur_rec]->timestamp;
+      v->n_valid++;
       /* and the data */
-      _rpc_copy_records(rec_data, &rs->data[cur_rec], 1);
-      if (put_partial(dbp, tid, &cur_k, &rec_data[0], sizeof(struct point),
-                      POINT_OFF(cur_v.n_valid-1)) < 0)
-        goto abort;
-      debug("Append detected; inserting at offset: %i\n", POINT_OFF(cur_v.n_valid-1));
+      _rpc_copy_records(&v->data[v->n_valid-1], &rs->data[cur_rec], 1);
+      debug("Append detected; inserting at offset: %i\n", POINT_OFF(v->n_valid-1));
     } else {
       struct rec_val *v = (struct rec_val *)buf;
       struct point new_rec;
       int i;
       /* otherwise we have to insert it somewhere. we'll just read out
          all the data and do the insert stupidly. */
-      if ((ret = get(cursorp, DB_SET | DB_RMW, &cur_k, v, sizeof(buf))) < 0) {
-        warn("error reading full bucket into memory (%i)!\n", ret);
-        continue;
-      }
       for (i = 0; i < v->n_valid; i++) {
         if (v->data[i].timestamp >= rs->data[cur_rec]->timestamp)
           break;
       }
       debug("Inserting within existing bucket index: %i (%i %i)\n", 
-            i, rs->data[cur_rec]->timestamp, cur_v.tail_timestamp);
+            i, rs->data[cur_rec]->timestamp, v->tail_timestamp);
       /* appends should have been handled without reading back the whole record */
       assert(i < v->n_valid);
-      // assert(i < SMALL_POINTS);
       /* we have our insert position */
       if (v->data[i].timestamp == rs->data[cur_rec]->timestamp) {
         /* replace a record */
         debug("Replacing record with timestamp 0x%x\n", rs->data[cur_rec]->timestamp);
-        _rpc_copy_records(&new_rec, &rs->data[cur_rec], 1);
-        if (put_partial(dbp, tid, &cur_k, &new_rec, sizeof(struct point),
-                        POINT_OFF(i)) < 0)
-          goto abort;
+        _rpc_copy_records(&v->data[i], &rs->data[cur_rec], 1);
       } else {
         /* shift the existing records back */
-        debug("Inserting new record\n");
-        if (put_partial(dbp, tid, &cur_k, &v->data[i], 
-                        (v->n_valid - i) * sizeof(struct point),
-                        POINT_OFF(i+1)) < 0)
-          goto abort;
-        _rpc_copy_records(&new_rec, &rs->data[cur_rec], 1);
-        if (put_partial(dbp, tid, &cur_k, &new_rec, 
-                        sizeof(struct point),
-                        POINT_OFF(i)) < 0) 
-          goto abort;
-      
-        cur_v.n_valid++;
+        debug("Inserting new record (moving %i recs)\n", v->n_valid - i);
+        memmove(&v->data[i+1], &v->data[i], (v->n_valid - i) * sizeof(struct point));
+        _rpc_copy_records(&v->data[i], &rs->data[cur_rec], 1);
+        v->n_valid++;
         /* and update the header */
-        if (put_partial(dbp, tid, &cur_k, &cur_v, sizeof(struct rec_val), 0) < 0)
-          goto abort;
       }
     }
-    if (cur_v.n_valid > MAXBUCKETRECS) {
+    bucket_dirty = TRUE;
+
+    if (v->n_valid > MAXBUCKETRECS) {
       info("Splitting buckets since this one is full!\n");
+      /* start by writing the current bucket back */
+      if ((ret = put(dbp, tid, &cur_k, v, POINT_OFF(v->n_valid))) < 0) {
+        warn("error writing back data: %s\n", db_strerror(ret));
+      }
+
       if (split_bucket(dbp, cursorp, tid, &cur_k) < 0)
         goto abort;
       bzero(&cur_k, sizeof(cur_k));
       bzero(&cur_v, sizeof(cur_v));
     }
   }
+
+  if (bucket_dirty) {
+    debug("flushing bucket back to db\n");
+    if ((ret = put(dbp, tid, &cur_k, v, POINT_OFF(v->n_valid))) < 0) {
+      warn("error writing back data: %s\n", db_strerror(ret));
+    }
+  }
+
   cursorp->close(cursorp);
 
   if ((ret = tid->commit(tid, 0)) != 0) {

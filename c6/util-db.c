@@ -22,6 +22,7 @@
 
 int put(DB *dbp, DB_TXN *txn, struct rec_key *k, void *buf, int len) {
   struct rec_key put_k;
+  int ret;
   DBT key, data;
   bzero(&key, sizeof(key));
   bzero(&data, sizeof(data));
@@ -40,7 +41,8 @@ int put(DB *dbp, DB_TXN *txn, struct rec_key *k, void *buf, int len) {
   data.size = data.ulen = len;
   data.flags = DB_DBT_USERMEM;
 
-  if (dbp->put(dbp, txn, &key, &data, 0) != 0) {
+  if ((ret = dbp->put(dbp, txn, &key, &data, 0)) != 0) {
+    error("db put: %s\n", db_strerror(ret));
     return -1;
   }
   return 0;
@@ -48,6 +50,7 @@ int put(DB *dbp, DB_TXN *txn, struct rec_key *k, void *buf, int len) {
 
 int put_partial(DB *dbp, DB_TXN *txn, struct rec_key *k, void *buf, int len, int off) {
   struct rec_key put_k;
+  int rv;
   DBT key, data;
   bzero(&key, sizeof(key));
   bzero(&data, sizeof(data));
@@ -67,8 +70,8 @@ int put_partial(DB *dbp, DB_TXN *txn, struct rec_key *k, void *buf, int len, int
   data.doff = off;
   data.flags = DB_DBT_USERMEM | DB_DBT_PARTIAL;
 
-  if (dbp->put(dbp, txn, &key, &data, 0) != 0) {
-    warn("put partial failed!\n");
+  if ((rv = dbp->put(dbp, txn, &key, &data, 0)) != 0) {
+    warn("put partial failed: %s\n", db_strerror(rv));
     return -1;
   }
   return 0;

@@ -21,7 +21,7 @@
 #define NBUCKETSIZES 3
 #define MAXBUCKETRECS (60 * 5)  /* has to be >= the number of records
                                                   in the smallest bucket */
-#define DEFAULT_PAGESIZE 65536
+#define DEFAULT_PAGESIZE 16384
 /* must be sorted */
 extern int bucket_sizes[NBUCKETSIZES];
 
@@ -42,12 +42,17 @@ struct point {
   double max;
 } __attribute__((packed));
 
-#define POINT_OFF(IDX) (((IDX) * (sizeof(struct point))) + (sizeof (struct rec_val)))
+#define POINT_OFF(IDX) ((((IDX) > 0 ? (IDX) : 0) * (sizeof(struct point))) + (sizeof (struct rec_val)))
 struct rec_val {
   uint32_t n_valid;
   uint32_t period_length;
   uint32_t tail_timestamp;
   struct point data[0];
+};
+
+struct cmpr_rec_header {
+  uint32_t compressed_len;
+  uint32_t uncompressed_len;
 };
 
 #define SMALL_POINTS 128
@@ -108,5 +113,9 @@ int bdb_compress(DB *dbp, const DBT *prevKey, const DBT *prevData,
                  const DBT *key, const DBT *data, DBT *dest);
 int bdb_decompress(DB *dbp, const DBT *prevKey, const DBT *prevData, 
                    DBT *compressed, DBT *destKey, DBT *destData);
+
+typedef enum {
+  FALSE = 0, TRUE = 1
+} bool_t;
 
 #endif
