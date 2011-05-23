@@ -131,3 +131,15 @@ int timeval_subtract(struct timeval *result,
   /* Return 1 if result is negative. */
   return x->tv_sec < y->tv_sec;
 }
+
+print_buf(void *buf, int len) {
+  int i;
+  uint8_t *cur = buf;
+  printf("----\n  ");
+  for (i = 0; i < len; i++) {
+    printf("0x%02x ", cur[i]);
+    if (i % 16 == 0 && i > 0)
+      printf("\n  ");
+  }
+  printf("\nbuffer[%i]\n\n", len);
+}

@@ -27,7 +27,6 @@ message DatabaseRecord {
   required uint32 k_streamid = 1;
   required uint32 k_timestamp = 2; 
   required uint32 period_length = 3;
-  required uint32 n_valid = 4;
   optional Reading first = 5;
   repeated DatabaseDelta deltas = 6;
 }

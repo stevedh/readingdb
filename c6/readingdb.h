@@ -118,4 +118,16 @@ typedef enum {
   FALSE = 0, TRUE = 1
 } bool_t;
 
+# ifndef LLONG_MIN
+#  define LLONG_MIN     (-LLONG_MAX-1)
+# endif
+# ifndef LLONG_MAX
+#  define LLONG_MAX     __LONG_LONG_MAX__
+# endif
+
+#  define htobe64(x) (x)
+#  define htole64(x) __bswap_64 (x)
+#  define be64toh(x) (x)
+#  define le64toh(x) __bswap_64 (x)
+
 #endif

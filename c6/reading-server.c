@@ -164,10 +164,10 @@ void db_open(struct config *conf) {
       exit(1);
     }
 
-    if ((ret = dbs[i].dbp->set_bt_compress(dbs[i].dbp, bdb_compress, bdb_decompress)) != 0) {
-      fatal("set_bt_compress: %s\n", db_strerror(ret));
-      exit(1);
-    }
+/*     if ((ret = dbs[i].dbp->set_bt_compress(dbs[i].dbp, bdb_compress, bdb_decompress)) != 0) { */
+/*       fatal("set_bt_compress: %s\n", db_strerror(ret)); */
+/*       exit(1); */
+/*     } */
 
     if ((ret = dbs[i].dbp->set_pagesize(dbs[i].dbp, DEFAULT_PAGESIZE)) != 0) {
       warn("set_pagesize: dbid: %i: %s\n", i, db_strerror(ret));
@@ -268,6 +268,8 @@ int split_bucket(DB *dbp, DBC *cursorp, DB_TXN *tid, struct rec_key *k) {
       info("writing new bucket anchor 0x%x size %i nvalid %i idx: %i\n", 
            new_k.timestamp, new_v->period_length, new_v->n_valid, data_start_idx);
       debug(" extra info [%i] %i %i\n", i, new_v->tail_timestamp, v->data[i-1].timestamp);
+      printf("%i %i\n", new_v->n_valid, i);
+      assert(new_v->n_valid >= 0 && new_v->n_valid <= MAXBUCKETRECS + NBUCKETSIZES);
 
       if (i > data_start_idx) {
         /* copy the data into the new bucket */
@@ -275,6 +277,7 @@ int split_bucket(DB *dbp, DBC *cursorp, DB_TXN *tid, struct rec_key *k) {
                POINT_OFF(i) - POINT_OFF(data_start_idx));
       }
 
+      assert(POINT_OFF(i - data_start_idx) < sizeof(new_buf));
       if (put(dbp, tid, &new_k, new_v, POINT_OFF(i - data_start_idx)) < 0) {
         warn("put failed\n");
         return -1;
@@ -333,6 +336,13 @@ int add(DB *dbp, ReadingSet *rs) {
     } else {
       /* need to find the right bucket */
       debug("Looking up bucket\n");
+      assert(POINT_OFF(v->n_valid) < sizeof(buf));
+      if (bucket_valid == TRUE && 
+          (ret = put(dbp, tid, &cur_k, v, POINT_OFF(v->n_valid))) < 0) {
+        warn("error writing back data: %s\n", db_strerror(ret));
+      }
+      bucket_valid = FALSE;
+
       cur_k.stream_id = rs->streamid;
       cur_k.timestamp = rs->data[cur_rec]->timestamp;
 
@@ -395,11 +405,15 @@ int add(DB *dbp, ReadingSet *rs) {
       }
     }
     bucket_dirty = TRUE;
+    assert(v->n_valid < MAXBUCKETRECS + NBUCKETSIZES);
 
     if (v->n_valid > MAXBUCKETRECS) {
       info("Splitting buckets since this one is full!\n");
       /* start by writing the current bucket back */
-      if ((ret = put(dbp, tid, &cur_k, v, POINT_OFF(v->n_valid))) < 0) {
+      assert(POINT_OFF(v->n_valid) < sizeof(buf));
+      if (bucket_valid == TRUE && 
+          (ret = put(dbp, tid, &cur_k, v, POINT_OFF(v->n_valid))) < 0) {
+        bucket_valid = FALSE;
         warn("error writing back data: %s\n", db_strerror(ret));
       }
 
@@ -410,8 +424,9 @@ int add(DB *dbp, ReadingSet *rs) {
     }
   }
 
-  if (bucket_dirty) {
+  if (bucket_valid && bucket_dirty) {
     debug("flushing bucket back to db\n");
+    assert(POINT_OFF(v->n_valid) < sizeof(buf));
     if ((ret = put(dbp, tid, &cur_k, v, POINT_OFF(v->n_valid))) < 0) {
       warn("error writing back data: %s\n", db_strerror(ret));
     }
@@ -431,7 +446,8 @@ int add(DB *dbp, ReadingSet *rs) {
 
   if ((ret = tid->abort(tid)) != 0) {
     fatal("Could not abort transaction: %s\n", db_strerror(ret));
-    do_shutdown = 1;
+    // do_shutdown = 1;
+    assert(0);
   }
   return -1;
 }
@@ -470,9 +486,9 @@ int add_enqueue(ReadingSet *rs, Response *reply) {
       goto fail;
     }
   }
-  if (rs->n_data > SMALL_POINTS - points->n_data) {
+  if (1 || rs->n_data > SMALL_POINTS - points->n_data) {
     /* do big adds directly */
-    info("writing data directly: streamid: %li n: %i\n",
+    debug("writing data directly: streamid: %li n: %i\n",
          key, rs->n_data);
     pthread_mutex_unlock(&dbs[rs->substream].lock);
 
@@ -1034,9 +1050,15 @@ void *process_request(void *request) {
 
 pthread_t * start_threads(struct config *c) {
   pthread_t *thread = malloc(sizeof(pthread_t));
+  pthread_attr_t attr;
+  size_t stacksize;
+  pthread_attr_init(&attr);
+  pthread_attr_getstacksize(&attr, &stacksize);
+  info("Default pthread stack size: %li\n", stacksize);
+
   if (c->commit_interval > 0) {
-    pthread_create(thread, NULL, (void *)(void *)commit_data, c);
-    pthread_detach(*thread);
+    // pthread_create(thread, NULL, (void *)(void *)commit_data, c);
+    // pthread_detach(*thread);
     return thread;
   } else {
     free(thread);

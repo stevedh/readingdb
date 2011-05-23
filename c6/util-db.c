@@ -16,6 +16,7 @@
 #include <errno.h>
 #include <db.h>
 #include <arpa/inet.h>
+#include <assert.h>
 
 #include "logging.h"
 #include "readingdb.h"
@@ -143,5 +144,7 @@ int get_partial(DBC *cursorp, int flags, struct rec_key *k, void *buf, int len, 
     }
     return 0;
   }
+  if (ret != DB_NOTFOUND) assert(0);
+
   return ret;
 }

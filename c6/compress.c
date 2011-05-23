@@ -17,14 +17,14 @@
 
 #define ZLIB_LEVEL Z_HUFFMAN_ONLY
 
-void _free_db_rec(DatabaseRecord *db) {
+static void _free_db_rec(DatabaseRecord *db) {
   free(db->deltas[0]);
   free(db->deltas);
   if (db->first) free(db->first);
   free(db);
 }
 
-DatabaseRecord * _alloc_db_rec(int n) {
+static DatabaseRecord * _alloc_db_rec(int n) {
   DatabaseRecord *rec;
   DatabaseDelta *deltas;
   DatabaseDelta **deltas_vec;
@@ -56,7 +56,7 @@ DatabaseRecord * _alloc_db_rec(int n) {
   return rec;
 }
 
-inline int64_t DOUBLE_DELTA(double x, double y) {
+static inline int64_t DOUBLE_DELTA(double x, double y) {
   int64_t i1, i2;
   memcpy(&i1, &x, sizeof(i1));
   memcpy(&i2, &y, sizeof(i2));
@@ -83,7 +83,7 @@ void pi(uint64_t delta) {
   }
 }
 
-inline double DOUBLE_ADD(double x, int64_t delta) {
+static inline double DOUBLE_ADD(double x, int64_t delta) {
   int64_t i1;
   double ret;
   memcpy(&i1, &x, sizeof(i1));
@@ -100,7 +100,7 @@ inline double DOUBLE_ADD(double x, int64_t delta) {
 #define HAS_MAX(X) ((X) < ((double)(LLONG_MAX - 1)))
 #define HAS_MIN(X) ((X) < ((double)(LLONG_MIN + 1)))
 
-int pbuf_compress(struct rec_key *k,
+static int pbuf_compress(struct rec_key *k,
                   struct rec_val *v, 
                   void *buf, int outbuf) {
   DatabaseRecord *db = _alloc_db_rec(v->n_valid + 1);
@@ -116,7 +116,6 @@ int pbuf_compress(struct rec_key *k,
   db->k_streamid = ntohl(k->stream_id);
   db->k_timestamp = ntohl(k->timestamp);
   db->period_length = v->period_length;
-  db->n_valid = v->n_valid;
   
   // printf("here:, n_valid: %i\n", v->n_valid);
 
@@ -151,14 +150,16 @@ int pbuf_compress(struct rec_key *k,
 
       /* the reading is also packed if we're not the same */
       if (DOUBLE_DELTA(v->data[i].reading, v->data[i-1].reading) != last_delta) {
-        last_delta = db->deltas[i-1]->value = DOUBLE_DELTA(v->data[i].reading, v->data[i-1].reading);
+        last_delta = db->deltas[i-1]->value = 
+          DOUBLE_DELTA(v->data[i].reading, v->data[i-1].reading);
         db->deltas[i-1]->has_value = 1;
       }
 
       if (v->data[i].reading_sequence != 0) {
         db->deltas[i-1]->has_seqno = 1;
         if (v->data[i - 1].reading_sequence != 0)
-          db->deltas[i-1]->seqno = v->data[i].reading_sequence - v->data[i-1].reading_sequence;
+          db->deltas[i-1]->seqno = v->data[i].reading_sequence - 
+            v->data[i-1].reading_sequence;
         else
           db->deltas[i-1]->seqno = v->data[i].reading_sequence;
       }
@@ -201,16 +202,14 @@ int pbuf_compress(struct rec_key *k,
 int bdb_compress(DB *dbp, const DBT *prevKey, const DBT *prevData, 
                  const DBT *key, const DBT *data, DBT *dest) {
   char pbuf_buf[64000];
-  int c_sz;
+  char zbuf_buf[64000];
+  int c_sz, ret;
   struct rec_key *k = (struct rec_key *)key->data;
   struct rec_val *v = (struct rec_val *)data->data;
   struct cmpr_rec_header *hdr;
-  //fprintf(stderr, "bdb_compress -- called : %i %i\n", key->size, data->size);
   assert(key->size == sizeof(struct rec_key));
-/*   printf("%i\n", ntohl(k->timestamp)); */
-  // printf("%i %i %i\n", data->size, v->n_valid, v->n_valid);
-/*   printf("%i\n", data->ulen); */
   assert(data->size == sizeof(struct rec_val) + (sizeof(struct point) * v->n_valid));
+
   c_sz = pbuf_compress((struct rec_key *)key->data, 
                        (struct rec_val *)data->data,
                        pbuf_buf, sizeof(pbuf_buf));
@@ -218,25 +217,26 @@ int bdb_compress(DB *dbp, const DBT *prevKey, const DBT *prevData,
   if (c_sz < 0) {
     assert(0);
   }
+
+  assert(compressBound(c_sz) < sizeof(zbuf_buf));
+  uLongf sz = sizeof(zbuf_buf);
+  if ((ret = compress2(zbuf_buf, &sz, pbuf_buf, c_sz, ZLIB_LEVEL)) < 0) {
+    fatal("compress2 failed: %i (dest: %lu src: %lu bound: %lu)\n", 
+          ret, sz, c_sz, compressBound(c_sz));
+    assert(0);
+  }
   
-  if (dest->ulen < compressBound(c_sz)) {
-    warn("Not compressing because %i < %i\n", dest->ulen, compressBound(c_sz));
-    dest->size = compressBound(c_sz) + sizeof(struct cmpr_rec_header);
+  if (dest->ulen < sz + sizeof(struct cmpr_rec_header)) {
+    dest->size = sz + sizeof(struct cmpr_rec_header);
     return DB_BUFFER_SMALL;
   } else {
-    // uint32_t *unpack_sz = (uint32_t *)dest->data;
     hdr = dest->data;
-    //printf("%llu\n", (uint64_t)dest->data);
-    // assert( (uint64_t)dest->data % 4 == 0);
-    // assert(dest->data == (uint32_t *)dest->data);
-    uLongf sz = dest->ulen - sizeof(struct cmpr_rec_header);
-
-    if (compress2(((char *)dest->data) + sizeof(struct cmpr_rec_header), &sz, pbuf_buf, c_sz, ZLIB_LEVEL) < 0) {
-      assert(0);
-    }
     dest->size = sz + sizeof(struct cmpr_rec_header);
+
+    assert(dest->ulen >= dest->size);
     hdr->uncompressed_len = htonl(c_sz);
     hdr->compressed_len = htonl(sz);
+    memcpy(((char *)dest->data) + sizeof(struct cmpr_rec_header), zbuf_buf, sz);
     // info("final compressed sz is %i\n", dest->size);
     debug("compress: streamid: %i timestamp: 0x%x n_valid: %i %lu -> %lu\n", 
          ntohl(k->stream_id), ntohl(k->timestamp), 
@@ -246,14 +246,17 @@ int bdb_compress(DB *dbp, const DBT *prevKey, const DBT *prevData,
   assert(0);
 }
 
-int pbuf_decompress(struct rec_key *key, void *buf, int len, struct rec_val *val, int sz) {
+static int pbuf_decompress(struct rec_key *key, void *buf, int len, 
+                           struct rec_val *val, int sz) {
   DatabaseRecord *rec;
   uint32_t last_ts = 0;
   int64_t last_delta = 0;
   int i, n_present;
   int unpack_sz;
   rec = database_record__unpack(NULL, len, buf);
-  unpack_sz = sizeof(struct rec_val) + (sizeof(struct point) * ((rec->first == NULL ? 0 : 1) + rec->n_deltas));
+  unpack_sz = sizeof(struct rec_val) + (sizeof(struct point) * 
+                                        ((rec->first == NULL ? 0 : 1) + 
+                                         rec->n_deltas));
 
   if (!rec || 
       sz < unpack_sz) {
@@ -264,7 +267,7 @@ int pbuf_decompress(struct rec_key *key, void *buf, int len, struct rec_val *val
   key->timestamp = htonl(rec->k_timestamp);
   // fprintf(stderr, "pbuf_decompress: %lu %lu\n", rec->k_streamid, rec->k_timestamp);
   val->period_length = rec->period_length;
-  val->n_valid = rec->n_valid; //rec->n_deltas + (rec->first == NULL ? 0 : 1);
+  val->n_valid = rec->n_deltas + (rec->first == NULL ? 0 : 1);
 
   //  printf("read back n_valid: %i\n", val->n_valid);
 
@@ -291,7 +294,8 @@ int pbuf_decompress(struct rec_key *key, void *buf, int len, struct rec_val *val
       if (val->data[i].reading_sequence == 0) {
         val->data[i+1].reading_sequence = rec->deltas[i]->seqno;
       } else {
-        val->data[i+1].reading_sequence = val->data[i].reading_sequence + rec->deltas[i]->seqno;
+        val->data[i+1].reading_sequence = val->data[i].reading_sequence + 
+          rec->deltas[i]->seqno;
       }
     } else {
       val->data[i+1].reading_sequence = 0;
@@ -312,19 +316,24 @@ int bdb_decompress(DB *dbp, const DBT *prevKey, const DBT *prevData,
   struct rec_key *k = destKey->data;
   struct rec_val *v = destData->data;
   uLongf destLen;
-  assert(compressed->size >= sizeof(struct cmpr_rec_header));
-
-  destKey->size = sizeof(struct rec_key);
-  // printf("destkey %i %i\n", destKey->size, destKey->ulen);
-  if (destKey->size > destKey->ulen) 
-    return DB_BUFFER_SMALL;
+  // assert(compressed->size >= sizeof(struct cmpr_rec_header));
+  if (compressed->size < sizeof(struct cmpr_rec_header)) {
+    assert(0);
+  }
 
   hdr = compressed->data;
+  destKey->size = sizeof(struct rec_key);
+  // printf("destkey %i %i\n", destKey->size, destKey->ulen);
+  if (destKey->size > destKey->ulen) {
+    destData->size = 0;
+    return DB_BUFFER_SMALL;
+  }
+
   if (ntohl(hdr->uncompressed_len) < sizeof(zbuf)) {
     int bufsz;
     destLen = ntohl(hdr->uncompressed_len);
     if (uncompress(zbuf, &destLen, 
-                   ((char *)compressed->data) + sizeof(sizeof(struct cmpr_rec_header)), 
+                   ((char *)compressed->data) + sizeof(struct cmpr_rec_header), 
                    ntohl(hdr->compressed_len)) != Z_OK) {
       warn("inflate failed!\n");
       assert(0);
@@ -332,7 +341,7 @@ int bdb_decompress(DB *dbp, const DBT *prevKey, const DBT *prevData,
     bufsz = pbuf_decompress((struct rec_key *)destKey->data, 
                             zbuf, destLen, destData->data, 
                             destData->ulen);
-    debug("contained %i points\n", bufsz);
+    debug("contained %i bytes\n", bufsz);
     if (bufsz < 0) {
       destData->size = - bufsz;
       return DB_BUFFER_SMALL;
