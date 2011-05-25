@@ -20,11 +20,34 @@
 
 #include "logging.h"
 #include "readingdb.h"
+#include "config.h"
 
-int put(DB *dbp, DB_TXN *txn, struct rec_key *k, void *buf, int len) {
+int put(DB *dbp, DB_TXN *txn, struct rec_key *k, struct rec_val *v) {
   struct rec_key put_k;
   int ret;
   DBT key, data;
+  int len;
+  void *data_buf;
+
+#ifdef USE_COMPRESSION
+  char cmpr_buf[COMPRESS_WORKING_BUF];
+  if ((ret = val_compress(v, cmpr_buf, sizeof(cmpr_buf))) < 0) {
+    warn("Compression failed!\n");
+    assert (0);
+  }
+
+  debug("compress: streamid: %i timestamp: 0x%x n_valid: %i %lu -> %i\n", 
+        k->stream_id, k->timestamp, 
+        v->n_valid, POINT_OFF(v->n_valid), ret);
+
+  data_buf = cmpr_buf;
+  len = ret;
+#else
+#warn Database compression disabled
+  data_buf = v;
+  len = POINT_OFF(v->n_valid);
+#endif
+ 
   bzero(&key, sizeof(key));
   bzero(&data, sizeof(data));
 
@@ -38,41 +61,12 @@ int put(DB *dbp, DB_TXN *txn, struct rec_key *k, void *buf, int len) {
   key.size = key.ulen = sizeof(struct rec_key);
   key.flags = DB_DBT_USERMEM;
 
-  data.data = buf;
+  data.data = data_buf;
   data.size = data.ulen = len;
   data.flags = DB_DBT_USERMEM;
 
   if ((ret = dbp->put(dbp, txn, &key, &data, 0)) != 0) {
     error("db put: %s\n", db_strerror(ret));
-    return -1;
-  }
-  return 0;
-}
-
-int put_partial(DB *dbp, DB_TXN *txn, struct rec_key *k, void *buf, int len, int off) {
-  struct rec_key put_k;
-  int rv;
-  DBT key, data;
-  bzero(&key, sizeof(key));
-  bzero(&data, sizeof(data));
-
-  debug("put_partial stream_id: %i timestamp: 0x%x len: %i offset: %i\n",
-        k->stream_id, k->timestamp, len, off);
-
-  put_k.stream_id = htonl(k->stream_id);
-  put_k.timestamp = htonl(k->timestamp);
-
-  key.data = &put_k;
-  key.size = key.ulen = sizeof(struct rec_key);
-  key.flags = DB_DBT_USERMEM;
-
-  data.data = buf;
-  data.size = data.ulen = data.dlen = len;
-  data.doff = off;
-  data.flags = DB_DBT_USERMEM | DB_DBT_PARTIAL;
-
-  if ((rv = dbp->put(dbp, txn, &key, &data, 0)) != 0) {
-    warn("put partial failed: %s\n", db_strerror(rv));
     return -1;
   }
   return 0;
@@ -84,10 +78,11 @@ int put_partial(DB *dbp, DB_TXN *txn, struct rec_key *k, void *buf, int len, int
  * @buf output buffer of length
  * @len
  */
-int get(DBC *cursorp, int flags, struct rec_key *k, void *buf, int len) {
+int get(DBC *cursorp, int flags, struct rec_key *k, struct rec_val *v, int len) {
   int ret;
   struct rec_key get_k;
   DBT key, data;
+  char zbuf[COMPRESS_WORKING_BUF];
   bzero(&key, sizeof(key));
   bzero(&data, sizeof(data));
 
@@ -100,51 +95,50 @@ int get(DBC *cursorp, int flags, struct rec_key *k, void *buf, int len) {
   key.size = key.ulen = sizeof(struct rec_key);
   key.flags = DB_DBT_USERMEM;
   
-  data.data = buf;
+#ifdef USE_COMPRESSION
+  data.data = zbuf;
+  data.size = data.ulen = sizeof(zbuf);
+  data.flags = DB_DBT_USERMEM;
+#else
+  data.data = v;
   data.size = data.ulen = len;
   data.flags = DB_DBT_USERMEM;
+#endif
   
   if ((ret = cursorp->get(cursorp, &key, &data, flags)) == 0) {
     if (flags & DB_NEXT || flags & DB_SET_RANGE) {
       k->stream_id = ntohl(get_k.stream_id);
       k->timestamp = ntohl(get_k.timestamp);
     }
+
+#ifdef USE_COMPRESSION
+    val_decompress(zbuf, data.size, v, len);
+
+    debug("decompress: streamid: %i timestamp: 0x%x n_valid: %i, %u -> %u\n", 
+          k->stream_id, k->timestamp, v->n_valid,
+          data.size, POINT_OFF(v->n_valid));
+
+#endif
     return 0;
   }
-  warn("Get failed: %s\n", db_strerror(ret));
+  if (ret != DB_NOTFOUND)
+    warn("Get failed: %s\n", db_strerror(ret));
   return -1;
 }
 
-int get_partial(DBC *cursorp, int flags, struct rec_key *k, void *buf, int len, int off) {
-  struct rec_key get_k;
+int get_partial(DBC *cursorp, int flags, struct rec_key *k, 
+                void *buf, int len, int off) {
+  char unpacked[COMPRESS_WORKING_BUF];
   int ret;
-  DBT key, data;
-  bzero(&key, sizeof(key));
-  bzero(&data, sizeof(data));
 
   debug("get_partial stream_id: %i timestamp: 0x%x\n",
         k->stream_id, k->timestamp);
 
-  get_k.stream_id = htonl(k->stream_id);
-  get_k.timestamp = htonl(k->timestamp);
-
-  key.data = &get_k;
-  key.size = key.ulen = sizeof(struct rec_key);
-  key.flags = DB_DBT_USERMEM;
-  
-  data.data = buf;
-  data.size = data.ulen = data.dlen = len;
-  data.doff = off;
-  data.flags = DB_DBT_USERMEM | DB_DBT_PARTIAL;
-
-  if ((ret = cursorp->get(cursorp, &key, &data, flags)) == 0) {
-    if (flags & DB_NEXT || flags & DB_SET_RANGE) {
-      k->stream_id = ntohl(get_k.stream_id);
-      k->timestamp = ntohl(get_k.timestamp);
-    }
-    return 0;
+  if ((ret = get(cursorp, flags, k, (struct rec_val *)unpacked, sizeof(unpacked))) < 0) {
+    return ret;
   }
-  if (ret != DB_NOTFOUND) assert(0);
+
+  memcpy(buf, unpacked + off, len);
 
   return ret;
 }

@@ -24,11 +24,9 @@ message DatabaseDelta {
 }
 
 message DatabaseRecord {
-  required uint32 k_streamid = 1;
-  required uint32 k_timestamp = 2; 
-  required uint32 period_length = 3;
-  optional Reading first = 5;
-  repeated DatabaseDelta deltas = 6;
+  required uint32 period_length = 1;
+  optional Reading first = 2;
+  repeated DatabaseDelta deltas = 3;
 }
 
 message Query {

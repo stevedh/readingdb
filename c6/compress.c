@@ -100,9 +100,7 @@ static inline double DOUBLE_ADD(double x, int64_t delta) {
 #define HAS_MAX(X) ((X) < ((double)(LLONG_MAX - 1)))
 #define HAS_MIN(X) ((X) < ((double)(LLONG_MIN + 1)))
 
-static int pbuf_compress(struct rec_key *k,
-                  struct rec_val *v, 
-                  void *buf, int outbuf) {
+static int pbuf_compress(struct rec_val *v, void *buf, int outbuf) {
   DatabaseRecord *db = _alloc_db_rec(v->n_valid + 1);
   double bottom = LLONG_MIN + 1, top = LLONG_MAX - 1;
   int i;
@@ -112,9 +110,6 @@ static int pbuf_compress(struct rec_key *k,
   if (!db) return 0;
 
   // fprintf(stderr, "pbuf_compress: %lu %lu\n", ntohl(k->stream_id), ntohl(k->timestamp));
-
-  db->k_streamid = ntohl(k->stream_id);
-  db->k_timestamp = ntohl(k->timestamp);
   db->period_length = v->period_length;
   
   // printf("here:, n_valid: %i\n", v->n_valid);
@@ -199,55 +194,29 @@ static int pbuf_compress(struct rec_key *k,
 }
 
 
-int bdb_compress(DB *dbp, const DBT *prevKey, const DBT *prevData, 
-                 const DBT *key, const DBT *data, DBT *dest) {
-  char pbuf_buf[64000];
-  char zbuf_buf[64000];
+int val_compress(struct rec_val *v, void *buf, int len) {
+  char pbuf_buf[COMPRESS_WORKING_BUF];
   int c_sz, ret;
-  struct rec_key *k = (struct rec_key *)key->data;
-  struct rec_val *v = (struct rec_val *)data->data;
-  struct cmpr_rec_header *hdr;
-  assert(key->size == sizeof(struct rec_key));
-  assert(data->size == sizeof(struct rec_val) + (sizeof(struct point) * v->n_valid));
 
-  c_sz = pbuf_compress((struct rec_key *)key->data, 
-                       (struct rec_val *)data->data,
-                       pbuf_buf, sizeof(pbuf_buf));
-  // fprintf(stderr, "compressed-size: %i\n", c_sz);
+  c_sz = pbuf_compress(v, pbuf_buf, sizeof(pbuf_buf));
+  // fprintf(stderr, "compressed-size: %i bound: %i len: %i\n", c_sz, compressBound(c_sz), len);
   if (c_sz < 0) {
     assert(0);
   }
-
-  assert(compressBound(c_sz) < sizeof(zbuf_buf));
-  uLongf sz = sizeof(zbuf_buf);
-  if ((ret = compress2(zbuf_buf, &sz, pbuf_buf, c_sz, ZLIB_LEVEL)) < 0) {
+  
+  assert(compressBound(c_sz) < len);
+  uLongf sz = len;
+  if ((ret = compress2(buf, &sz, pbuf_buf, c_sz, ZLIB_LEVEL)) < 0) {
     fatal("compress2 failed: %i (dest: %lu src: %lu bound: %lu)\n", 
           ret, sz, c_sz, compressBound(c_sz));
     assert(0);
   }
-  
-  if (dest->ulen < sz + sizeof(struct cmpr_rec_header)) {
-    dest->size = sz + sizeof(struct cmpr_rec_header);
-    return DB_BUFFER_SMALL;
-  } else {
-    hdr = dest->data;
-    dest->size = sz + sizeof(struct cmpr_rec_header);
+  debug("compress2: %i -> %i\n", c_sz, sz);
 
-    assert(dest->ulen >= dest->size);
-    hdr->uncompressed_len = htonl(c_sz);
-    hdr->compressed_len = htonl(sz);
-    memcpy(((char *)dest->data) + sizeof(struct cmpr_rec_header), zbuf_buf, sz);
-    // info("final compressed sz is %i\n", dest->size);
-    debug("compress: streamid: %i timestamp: 0x%x n_valid: %i %lu -> %lu\n", 
-         ntohl(k->stream_id), ntohl(k->timestamp), 
-         v->n_valid, data->size, sz);
-    return 0;
-  }
-  assert(0);
+  return (int)sz;
 }
 
-static int pbuf_decompress(struct rec_key *key, void *buf, int len, 
-                           struct rec_val *val, int sz) {
+static int pbuf_decompress(void *buf, int len, struct rec_val *val, int sz) {
   DatabaseRecord *rec;
   uint32_t last_ts = 0;
   int64_t last_delta = 0;
@@ -257,15 +226,13 @@ static int pbuf_decompress(struct rec_key *key, void *buf, int len,
   unpack_sz = sizeof(struct rec_val) + (sizeof(struct point) * 
                                         ((rec->first == NULL ? 0 : 1) + 
                                          rec->n_deltas));
+  
+  if (!rec)
+    assert(0);
 
-  if (!rec || 
-      sz < unpack_sz) {
-    database_record__free_unpacked(rec, NULL);
-    return - unpack_sz;
-  }
-  key->stream_id = htonl(rec->k_streamid);
-  key->timestamp = htonl(rec->k_timestamp);
   // fprintf(stderr, "pbuf_decompress: %lu %lu\n", rec->k_streamid, rec->k_timestamp);
+  debug("unpack_sz: %i, sz: %i\n", unpack_sz, sz);
+
   val->period_length = rec->period_length;
   val->n_valid = rec->n_deltas + (rec->first == NULL ? 0 : 1);
 
@@ -309,51 +276,22 @@ static int pbuf_decompress(struct rec_key *key, void *buf, int len,
   return unpack_sz;
 }
 
-int bdb_decompress(DB *dbp, const DBT *prevKey, const DBT *prevData, 
-                   DBT *compressed, DBT *destKey, DBT *destData) {
-  char zbuf[64000];  
-  struct cmpr_rec_header *hdr;
-  struct rec_key *k = destKey->data;
-  struct rec_val *v = destData->data;
-  uLongf destLen;
-  // assert(compressed->size >= sizeof(struct cmpr_rec_header));
-  if (compressed->size < sizeof(struct cmpr_rec_header)) {
-    assert(0);
-  }
-
-  hdr = compressed->data;
-  destKey->size = sizeof(struct rec_key);
-  // printf("destkey %i %i\n", destKey->size, destKey->ulen);
-  if (destKey->size > destKey->ulen) {
-    destData->size = 0;
-    return DB_BUFFER_SMALL;
-  }
-
-  if (ntohl(hdr->uncompressed_len) < sizeof(zbuf)) {
-    int bufsz;
-    destLen = ntohl(hdr->uncompressed_len);
-    if (uncompress(zbuf, &destLen, 
-                   ((char *)compressed->data) + sizeof(struct cmpr_rec_header), 
-                   ntohl(hdr->compressed_len)) != Z_OK) {
+int val_decompress(void *cmpr, int cmpr_len, struct rec_val *v, int v_len) {
+  char zbuf[COMPRESS_WORKING_BUF];  
+  uLongf destLen = sizeof(zbuf);
+  int bufsz;
+  if (uncompress(zbuf, &destLen, cmpr, cmpr_len) != Z_OK) {
       warn("inflate failed!\n");
       assert(0);
-    }
-    bufsz = pbuf_decompress((struct rec_key *)destKey->data, 
-                            zbuf, destLen, destData->data, 
-                            destData->ulen);
-    debug("contained %i bytes\n", bufsz);
-    if (bufsz < 0) {
-      destData->size = - bufsz;
-      return DB_BUFFER_SMALL;
-    } else {
-      destData->size = bufsz;
-      debug("decompress: streamid: %i timestamp: 0x%x n_valid: %i, %u -> %u\n", 
-           ntohl(k->stream_id), ntohl(k->timestamp), v->n_valid,
-           compressed->size, bufsz);
+  }
 
-      compressed->size = (ntohl(hdr->compressed_len) + sizeof(struct cmpr_rec_header));
-      return 0;
-    }
+  debug("inflate: %i -> %i\n", cmpr_len, destLen);
+
+  bufsz = pbuf_decompress(zbuf, destLen, v, v_len);
+  if (bufsz < 0) {
+    assert(0);
+  } else {
+    return 0;
   }
   assert(0);
 }

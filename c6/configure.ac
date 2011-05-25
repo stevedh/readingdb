@@ -15,6 +15,10 @@ AC_PROG_RANLIB
 # PKG_CHECK_MODULES([CHECK], [check >= 0.9.4]) 
 # Checks for libraries.
 
+AC_ARG_ENABLE([compression],
+        AS_HELP_STRING([--disable-compression], [Disable database compression]))
+AS_IF([test "x$enable_compression" != "xno"], AC_DEFINE([USE_COMPRESSION], [], [Use compressed database]))
+
 # Checks for header files.
 AC_HEADER_STDC
 AC_CHECK_HEADERS([stdlib.h string.h])

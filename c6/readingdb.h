@@ -21,6 +21,11 @@
 #define NBUCKETSIZES 3
 #define MAXBUCKETRECS (60 * 5)  /* has to be >= the number of records
                                                   in the smallest bucket */
+
+
+#define COMPRESS_WORKING_BUF 64000
+
+
 #define DEFAULT_PAGESIZE 16384
 /* must be sorted */
 extern int bucket_sizes[NBUCKETSIZES];
@@ -48,11 +53,6 @@ struct rec_val {
   uint32_t period_length;
   uint32_t tail_timestamp;
   struct point data[0];
-};
-
-struct cmpr_rec_header {
-  uint32_t compressed_len;
-  uint32_t uncompressed_len;
 };
 
 #define SMALL_POINTS 128
@@ -109,10 +109,8 @@ struct pbuf_header {
 #define MAX_PBUF_MESSAGE 1000000
 
 /* compression functions in compress.c */
-int bdb_compress(DB *dbp, const DBT *prevKey, const DBT *prevData, 
-                 const DBT *key, const DBT *data, DBT *dest);
-int bdb_decompress(DB *dbp, const DBT *prevKey, const DBT *prevData, 
-                   DBT *compressed, DBT *destKey, DBT *destData);
+int val_compress(struct rec_val *v, void *buf, int len);
+int val_decompress(void *cmpr, int cmpr_len, struct rec_val *v, int v_len);
 
 typedef enum {
   FALSE = 0, TRUE = 1

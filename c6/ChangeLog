@@ -1,0 +1,22 @@
+
+2011-05-25 Stephen Dawson-Haggerty <stevedh@eecs.berkeley.edu>
+	* compress.c (val_compress, val_decompress): remove btree
+	compression routines and replace with these since we're moving
+	compression external to the library.
+
+	* util-db.c (get, put, get_partial): enable compression before
+	writing page to bdb.  This changes the on-disk format.
+	
+2011-05-14 Stephen Dawson-Haggerty <stevedh@eecs.berkeley.edu>
+	* compress.c: add file with compression routines.  Use combined
+	delta-encoding + huffman tree from zlib.
+
+2011-05-01 Stephen Dawson-Haggerty <stevedh@eecs.berkeley.edu>
+	* reading-server.c (process_request, process_pbuf): switch to
+	using google protocol buffers for wire format.  deprecate and
+	disable ascii protocol.
+
+2011-03-30 Stephen Dawson-Haggerty <stevedh@eecs.berkeley.edu>
+	* reading-server.c: Finally enable transaction updates to
+	hopefully get rid of data losses.
+

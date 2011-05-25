@@ -234,7 +234,7 @@ int split_bucket(DB *dbp, DBC *cursorp, DB_TXN *tid, struct rec_key *k) {
     error("error reading full bucket into memory for split (%s)!\n", db_strerror(ret));
     return -1;
   }
-  info("Splitting bucket stream_id: %i anchor: 0x%x len: %i elts: %i\n", 
+  debug("Splitting bucket stream_id: %i anchor: 0x%x len: %i elts: %i\n", 
        k->stream_id, k->timestamp, v->period_length, v->n_valid);
   if (v->period_length == bucket_sizes[0]) {
     return 0;
@@ -251,7 +251,7 @@ int split_bucket(DB *dbp, DBC *cursorp, DB_TXN *tid, struct rec_key *k) {
   new_v->period_length = bucket_sizes[new_bucket_idx];
   new_v->tail_timestamp = 0;
   data_start_idx = 0;
-  info("Spliting up %i records\n", v->n_valid);
+  debug("Spliting up %i records\n", v->n_valid);
   for (i = 0; i <= v->n_valid; i++) {
     if (i < v->n_valid &&
         v->data[i].timestamp < new_k.timestamp + new_v->period_length) {
@@ -260,10 +260,9 @@ int split_bucket(DB *dbp, DBC *cursorp, DB_TXN *tid, struct rec_key *k) {
       new_v->n_valid = i - data_start_idx;
       new_v->tail_timestamp = v->data[i-1].timestamp;
 
-      info("writing new bucket anchor 0x%x size %i nvalid %i idx: %i\n", 
+      debug("writing new bucket anchor 0x%x size %i nvalid %i idx: %i\n", 
            new_k.timestamp, new_v->period_length, new_v->n_valid, data_start_idx);
       debug(" extra info [%i] %i %i\n", i, new_v->tail_timestamp, v->data[i-1].timestamp);
-      printf("%i %i\n", new_v->n_valid, i);
       assert(new_v->n_valid >= 0 && new_v->n_valid <= MAXBUCKETRECS + NBUCKETSIZES);
 
       if (i > data_start_idx) {
@@ -403,7 +402,7 @@ int add(DB *dbp, ReadingSet *rs) {
     assert(v->n_valid < MAXBUCKETRECS + NBUCKETSIZES);
 
     if (v->n_valid > MAXBUCKETRECS) {
-      info("Splitting buckets since this one is full!\n");
+      debug("Splitting buckets since this one is full!\n");
       /* start by writing the current bucket back */
       assert(POINT_OFF(v->n_valid) < sizeof(buf));
       if (bucket_valid == TRUE && 
@@ -1052,8 +1051,8 @@ pthread_t * start_threads(struct config *c) {
   info("Default pthread stack size: %li\n", stacksize);
 
   if (c->commit_interval > 0) {
-    // pthread_create(thread, NULL, (void *)(void *)commit_data, c);
-    // pthread_detach(*thread);
+    pthread_create(thread, NULL, (void *)(void *)commit_data, c);
+    pthread_detach(*thread);
     return thread;
   } else {
     free(thread);
