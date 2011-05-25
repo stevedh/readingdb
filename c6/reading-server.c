@@ -164,11 +164,6 @@ void db_open(struct config *conf) {
       exit(1);
     }
 
-/*     if ((ret = dbs[i].dbp->set_bt_compress(dbs[i].dbp, bdb_compress, bdb_decompress)) != 0) { */
-/*       fatal("set_bt_compress: %s\n", db_strerror(ret)); */
-/*       exit(1); */
-/*     } */
-
     if ((ret = dbs[i].dbp->set_pagesize(dbs[i].dbp, DEFAULT_PAGESIZE)) != 0) {
       warn("set_pagesize: dbid: %i: %s\n", i, db_strerror(ret));
     }
