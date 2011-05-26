@@ -6,6 +6,11 @@
 
 	* util-db.c (get, put, get_partial): enable compression before
 	writing page to bdb.  This changes the on-disk format.
+
+	* reading-server.c (start_threads, deadlock_thread,
+	checkpoint_thread): start deadlock detector, checkpointer, and
+	archiver in-process to avoid the need for external scripts.
+	
 	
 2011-05-14 Stephen Dawson-Haggerty <stevedh@eecs.berkeley.edu>
 	* compress.c: add file with compression routines.  Use combined

@@ -33,6 +33,8 @@ struct config {
   char data_dir[FILENAME_MAX];
   unsigned short port;
   int cache_size;
+  int deadlock_interval;
+  int checkpoint_interval;
 };
 struct config conf;
 
@@ -114,11 +116,13 @@ int eqfn_streamid(void *k1, void *k2) {
 }
 
 void default_config(struct config *c) {
-  c->commit_interval = 1;
   c->loglevel = LOGLVL_INFO;
   strcpy(c->data_dir, DATA_DIR);
   c->port = 4242;
   c->cache_size = 32;
+  c->commit_interval = 10;
+  c->deadlock_interval = 2;
+  c->checkpoint_interval = 300;
 }
 
 void db_open(struct config *conf) {
@@ -214,7 +218,8 @@ int get_bucket(DBC *cursorp, struct rec_key *k, struct rec_val *v) {
     }
   }
   if (key_level < 0) {
-    warn("CONFUSED\n");
+    warn("CONFUSED streamid: %u timestamp: %u\n",
+         k->stream_id, k->timestamp);
     return 1;
   }
   debug("Should be in new bin; size idx %i\n", key_level);
@@ -565,7 +570,6 @@ void commit_data(struct config *conf) {
       continue;
     }
   }
-  pthread_cond_broadcast(&shutdown_cond);
   pthread_mutex_unlock(&shutdown_lock);
 }
 
@@ -705,17 +709,25 @@ void usage(char *progname) {
           "\n\t%s [options]\n"
           "\t\t-v                 verbose\n"
           "\t\t-h                 help\n"
-          "\t\t-d <datadir>       set data directory\n"
-          "\t\t-c <interval>      set commit interval\n"
-          "\t\t-p <port>          local port to bind to\n"
-          "\t\t-s <cache size>    cache size (MB)\n\n",
-          progname);
+          "\t\t-d <datadir>       set data directory (%s)\n"
+          "\t\t-c <interval>      set commit interval (10s)\n"
+          "\t\t-p <port>          local port to bind to (4242)\n"
+          "\t\t-l <interval>      how often to run the deadlock detector (2s)\n"
+          "\t\t-a <interval>      how often to checkpoint and archive (300s)\n"
+          "\t\t-s <cache size>    cache size (32MB)\n\n",
+          progname, DATA_DIR);
 }
+
+#define INVALID_INT_ARG(ARG) ((errno == ERANGE && \
+           ((ARG) == LONG_MAX ||                  \
+            (ARG) == LONG_MIN)) ||                \
+          (errno != 0 && (ARG) == 0) ||           \
+          endptr == optarg)
 
 int optparse(int argc, char **argv, struct config *c) {
   char o;
   char *endptr;
-  while ((o = getopt(argc, argv, "vhd:c:p:s:")) != -1) {
+  while ((o = getopt(argc, argv, "vhd:c:p:s:l:a:")) != -1) {
     switch (o) {
     case 'h':
       usage(argv[0]);
@@ -736,12 +748,22 @@ int optparse(int argc, char **argv, struct config *c) {
       break;
     case 'c':
       c->commit_interval = strtol(optarg, &endptr, 10);
-      if ((errno == ERANGE && 
-           (c->commit_interval == LONG_MAX || 
-            c->commit_interval == LONG_MIN)) ||
-          (errno != 0 && c->commit_interval == 0) ||
-          endptr == optarg) {
+      if (INVALID_INT_ARG(c->commit_interval)) {
         fatal("Invalid commit interval\n");
+        return -1;
+      }
+      break;
+    case 'l':
+      c->deadlock_interval = strtol(optarg, &endptr, 10);
+      if (INVALID_INT_ARG(c->deadlock_interval)) {
+        fatal("Invalid deadlock interval\n");
+        return -1;
+      }
+      break;
+    case 'a':
+      c->checkpoint_interval = strtol(optarg, &endptr, 10);
+      if (INVALID_INT_ARG(c->checkpoint_interval)) {
+        fatal("Invalid deadlock interval\n");
         return -1;
       }
       break;
@@ -756,6 +778,8 @@ int optparse(int argc, char **argv, struct config *c) {
   }
 
   info("Commit interval is %i\n", c->commit_interval);
+  info("Deadlock interval is %i\n", c->deadlock_interval);
+  info("Checkpoint/archive interval is %i\n", c->checkpoint_interval);
   return 0;
 }
 
@@ -1042,27 +1066,136 @@ void *process_request(void *request) {
   return NULL;
 }
 
-pthread_t * start_threads(struct config *c) {
-  pthread_t *thread = malloc(sizeof(pthread_t));
+/*
+ * Periodically write a checkpoint record to the log, and remove the
+ * log files.  Since we're not copying them to durable storage for
+ * "catastrophic error recovery", we just delete them rathern than
+ * allowing them to consume space.  If disabled, you should
+ * periodically use db_checkpoint and db_archive to accomplish similar
+ * functionality.
+ */
+void checkpoint_thread(void *p) {
+  struct config *c = p;
+  struct timespec sleep_time;
+  struct timeval tv;
+  int done = 0, ret;
+  pthread_mutex_lock(&shutdown_lock);
+  while (!done) {
+    gettimeofday(&tv, NULL);
+    sleep_time.tv_sec = tv.tv_sec + c->checkpoint_interval;
+    sleep_time.tv_nsec = tv.tv_usec * 1e3;
+
+    if (pthread_cond_timedwait(&shutdown_cond, &shutdown_lock, &sleep_time) == 0)
+      done = 1;
+
+    if ((ret = env->txn_checkpoint(env, 10, 0, 0)) != 0) {
+      warn("txn_checkpoint: %s\n", db_strerror(ret));
+      continue;
+    }
+
+    if ((ret = env->log_archive(env, NULL, DB_ARCH_REMOVE)) != 0) {
+      warn("log_archive: %s\n", db_strerror(ret));
+      continue;
+    }
+
+    debug("checkpoint and archive succeeded\n");
+
+  }
+
+  pthread_mutex_unlock(&shutdown_lock);
+}
+
+/*
+ * Periodically run a deadlock detector to deal with transaction
+ * deadlocks, which do occur occasionally.  If this is disabled (by
+ * setting the period to zero), you should call db_deadlock
+ * occasionally to break deadlocks.
+ *
+ */
+void deadlock_thread(void *p) {
+  struct config *c = p;
+  struct timespec sleep_time;
+  struct timeval tv;
+  int done = 0, ret, rejected;
+  pthread_mutex_lock(&shutdown_lock);
+  while (!done) {
+    gettimeofday(&tv, NULL);
+    sleep_time.tv_sec = tv.tv_sec + c->deadlock_interval;
+    sleep_time.tv_nsec = tv.tv_usec * 1e3;
+
+    if (pthread_cond_timedwait(&shutdown_cond, &shutdown_lock, &sleep_time) == 0)
+      done = 1;
+    
+    if ((ret = env->lock_detect(env, 0, DB_LOCK_DEFAULT, &rejected)) != 0) {
+      error("lock_detect: %s\n", db_strerror(ret));
+    }
+
+    if (rejected > 0) {
+      warn("lock_detect: rejected %i locks\n", rejected);
+    } else {
+      debug("lock_detect: no locks rejected\n");
+    }
+  }
+  pthread_mutex_unlock(&shutdown_lock);
+}
+
+/* start up threads which run continuously
+ *  - commit thread
+ *  - checkpoint + archive thread
+ *  - deadlock thread
+ */
+pthread_t **start_threads(struct config *c) {
+  pthread_t **thread = malloc(sizeof(pthread_t *) * 4);
   pthread_attr_t attr;
-  size_t stacksize;
-  pthread_attr_init(&attr);
-  pthread_attr_getstacksize(&attr, &stacksize);
-  info("Default pthread stack size: %li\n", stacksize);
+  int nthreads = 0;
 
   if (c->commit_interval > 0) {
-    pthread_create(thread, NULL, (void *)(void *)commit_data, c);
-    pthread_detach(*thread);
-    return thread;
-  } else {
-    free(thread);
-    return NULL;
+    thread[nthreads] = malloc(sizeof(pthread_t));
+    pthread_create(thread[nthreads], NULL, (void *)(void *)commit_data, c);
+    nthreads ++;
   }
+
+  if (c->deadlock_interval > 0) {
+    thread[nthreads] = malloc(sizeof(pthread_t));
+    pthread_create(thread[nthreads], NULL, (void *)(void *)deadlock_thread, c);
+    nthreads ++;
+  } else {
+    warn("Not starting deadlock detector!\n");
+  }
+
+  if (c->checkpoint_interval > 0) {
+    thread[nthreads] = malloc(sizeof(pthread_t));
+    pthread_create(thread[nthreads], NULL, (void *)(void *)checkpoint_thread, c);
+    nthreads ++;
+  } else {
+    warn("Not starting checkpoint thread!\n");
+  }
+
+  thread[nthreads] = NULL;
+
+  return thread;
+}
+
+/* wait on threads we've previously started to stop running */
+void stop_threads(pthread_t **threads) {
+  int i = 0;
+  void *ret;
+  pthread_mutex_lock(&shutdown_lock);
+  pthread_cond_broadcast(&shutdown_cond);
+  pthread_mutex_unlock(&shutdown_lock);
+
+  while (threads[i] != NULL) {
+    pthread_join(*threads[i], &ret);
+    free(threads[i]);
+    i++;
+  }
+  free(threads);
 }
 
 int main(int argc, char **argv) {
   struct timeval last, now, delta;
   int yes;
+  pthread_t **threads;
 
   sem_init(&worker_count_sem, 0, MAXCONCURRENCY);
 
@@ -1124,7 +1257,7 @@ int main(int argc, char **argv) {
     goto close;
   }
 
-  start_threads(&conf);
+  threads = start_threads(&conf);
 
   while (!do_shutdown) {
     char addr_buf[256];
@@ -1202,10 +1335,7 @@ int main(int argc, char **argv) {
 
   /* wait to flush hashtable data and sync */
   info("clients exited, waiting on commit...\n");
-  pthread_mutex_lock(&shutdown_lock);
-  pthread_cond_broadcast(&shutdown_cond);
-  pthread_cond_wait(&shutdown_cond, &shutdown_lock);
-  pthread_mutex_unlock(&shutdown_lock);
+  stop_threads(threads);
   info("commit thread exited; closing databases\n");
 
  close:
