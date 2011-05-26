@@ -335,7 +335,7 @@ int add(DB *dbp, ReadingSet *rs) {
     } else {
       /* need to find the right bucket */
       debug("Looking up bucket\n");
-      assert(POINT_OFF(v->n_valid) < sizeof(buf));
+      assert(!bucket_valid || POINT_OFF(v->n_valid) < sizeof(buf));
       if (bucket_valid == TRUE && 
           (ret = put(dbp, tid, &cur_k, v, POINT_OFF(v->n_valid))) < 0) {
         warn("error writing back data: %s\n", db_strerror(ret));
