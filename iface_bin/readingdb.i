@@ -8,7 +8,7 @@
   $action
   if (!result) return NULL;        
 }
-struct sock_request *db_open(char *host="gecko.cs.berkeley.edu", short port=4246);
+struct sock_request *db_open(char *host="gecko.cs.berkeley.edu", short port=4242);
 
 
 void db_substream(struct sock_request *dbp, int substream);
