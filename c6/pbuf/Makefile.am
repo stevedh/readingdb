@@ -1,6 +1,6 @@
 
-all: rdb.pb-c.c
+all: rdb.pb-c.h
 
-rdb.pb-c.c: rdb.proto
+rdb.pb-c.h: rdb.proto
 	protoc-c --c_out=. $<
 

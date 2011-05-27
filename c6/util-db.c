@@ -22,6 +22,21 @@
 #include "readingdb.h"
 #include "config.h"
 
+#ifdef WRITE_COMPRESSION_LOG
+#define CMPR_LOG "cmpr.log"
+static void write_cmprlog(unsigned long long streamid,
+                          unsigned long long substream,
+                          unsigned long long base,
+                          int nvalid,
+                          size_t uncmpr, size_t cmpr) {
+  FILE *fp = fopen(CMPR_LOG, "a");
+  if (!fp) return;
+  fprintf(fp, "%llu,%llu,%llu,%i,%llu,%llu\n", 
+          streamid, substream, base, nvalid, uncmpr, cmpr);
+  fclose(fp);
+}
+#endif
+
 int put(DB *dbp, DB_TXN *txn, struct rec_key *k, struct rec_val *v) {
   struct rec_key put_k;
   int ret;
@@ -39,6 +54,11 @@ int put(DB *dbp, DB_TXN *txn, struct rec_key *k, struct rec_val *v) {
   debug("compress: streamid: %i timestamp: 0x%x n_valid: %i %lu -> %i\n", 
         k->stream_id, k->timestamp, 
         v->n_valid, POINT_OFF(v->n_valid), ret);
+
+#ifdef WRITE_COMPRESSION_LOG
+  write_cmprlog(k->stream_id, 0, k->timestamp, 
+                v->n_valid, POINT_OFF(v->n_valid), ret);
+#endif
 
   data_buf = cmpr_buf;
   len = ret;
