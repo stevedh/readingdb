@@ -104,7 +104,13 @@ struct stats stats = {0, 0, 0};
     stats.STAT ++;                                             \
     pthread_mutex_unlock(&stats_lock); }
 
-
+int valid_bucketsize(int length) {
+  int i;
+  for (i = 0; i < NBUCKETSIZES; i++) {
+    if (length == bucket_sizes[i]) return 1;
+  }
+  return 0;
+}
 
 unsigned int hash_streamid(void *streamid) {
   unsigned long long *v = streamid;
@@ -584,7 +590,7 @@ void query(DB *dbp, Query *q, Response *r) {
     return;
   }
 
-  if (get_partial(cursorp, DB_SET_RANGE, &k, &v, sizeof(struct rec_val), 0) < 0) {
+  if (get_partial(cursorp, DB_SET_RANGE, &k, &v, sizeof(struct rec_val), 0) != 0) {
     goto done;
   }
 
@@ -597,6 +603,11 @@ void query(DB *dbp, Query *q, Response *r) {
     if (streamid != k.stream_id) break;
     if (k.timestamp >= endtime) break;
     if (r->data->n_data >= MAXRECS) break;
+    if (!valid_bucketsize(v.period_length) || v.n_valid > MAXBUCKETRECS + NBUCKETSIZES) {
+      warn("length is invalid: %i! streamid: %i start: %i nvalid: %i\n", 
+	   v.period_length, k.stream_id, k.timestamp, v.n_valid);
+      goto next;
+    }
 
     if (get_partial(cursorp, DB_SET, &k, bucket,
                     sizeof(struct point) * read_recs,
