@@ -105,6 +105,14 @@ struct stats stats = {0, 0, 0};
     stats.STAT ++;                                             \
     pthread_mutex_unlock(&stats_lock); }
 
+inline int valid_bucketsize(int length) {
+  int i;
+  for (i = 0; i < NBUCKETSIZES; i++) {
+    if (length == bucket_sizes[i]) return 1;
+  }
+  return 0;
+}
+
 unsigned int hash_streamid(void *streamid) {
   unsigned long long *v = streamid;
   return *v;
@@ -128,7 +136,7 @@ void default_config(struct config *c) {
 void db_open(struct config *conf) {
   int i;
   int ret;
-  int cache_size;
+  unsigned int cache_gb, cache_b;
   int oflags;
 
   if ((ret = db_env_create(&env, 0)) != 0) {
@@ -138,8 +146,9 @@ void db_open(struct config *conf) {
 
   /* with such large keys we need more cache to avoid constant disk
      seeks. */
-  cache_size = conf->cache_size * 1e6;
-  if ((ret = env->set_cachesize(env, 0, cache_size, 0)) != 0) {
+  cache_gb = conf->cache_size / 1000;
+  cache_b = conf->cache_size % 1000;
+  if ((ret = env->set_cachesize(env, cache_gb, cache_b, 0)) != 0) {
     fatal("Error allocating cache error: %s\n", db_strerror(ret));
     exit(1);
   }
@@ -154,6 +163,13 @@ void db_open(struct config *conf) {
   
   if ((ret = env->set_flags(env, DB_TXN_NOSYNC, 1)) != 0) {
     fatal("set flags: %s\n", db_strerror(ret));
+    exit(1);
+  }
+
+  /* set the number of transactions to the number of threads we might
+     have, plus one for the commit thread. default is 20. */
+  if ((ret = env->set_tx_max(env, MAXCONCURRENCY+1)) != 0) {
+    fatal("set_tx_max: %s\n", db_strerror(ret));
     exit(1);
   }
 
@@ -596,7 +612,7 @@ void query(DB *dbp, Query *q, Response *r) {
     return;
   }
 
-  if (get_partial(cursorp, DB_SET_RANGE, &k, &v, sizeof(struct rec_val), 0) < 0) {
+  if (get_partial(cursorp, DB_SET_RANGE, &k, &v, sizeof(struct rec_val), 0) != 0) {
     goto done;
   }
 
@@ -609,6 +625,11 @@ void query(DB *dbp, Query *q, Response *r) {
     if (streamid != k.stream_id) break;
     if (k.timestamp >= endtime) break;
     if (r->data->n_data >= MAXRECS) break;
+    if (!valid_bucketsize(v.period_length) || v.n_valid > MAXBUCKETRECS + NBUCKETSIZES) {
+      warn("length is invalid: %i! streamid: %i start: %i nvalid: %i\n", 
+	   v.period_length, k.stream_id, k.timestamp, v.n_valid);
+      goto next;
+    }
 
     if (get_partial(cursorp, DB_SET, &k, bucket,
                     sizeof(struct point) * read_recs,
