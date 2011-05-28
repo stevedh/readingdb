@@ -153,6 +153,13 @@ void db_open(struct config *conf) {
     exit(1);
   }
 
+  /* set the number of transactions to the number of threads we might
+     have, plus one for the commit thread. default is 20. */
+  if ((ret = env->set_tx_max(env, MAXCONCURRENCY+1)) != 0) {
+    fatal("set_tx_max: %s\n", db_strerror(ret));
+    exit(1);
+  }
+
   oflags =  DB_INIT_MPOOL | DB_CREATE | DB_THREAD | DB_INIT_LOCK |
     DB_INIT_LOG |  DB_INIT_TXN | DB_RECOVER;
 
@@ -163,13 +170,6 @@ void db_open(struct config *conf) {
   
   if ((ret = env->set_flags(env, DB_TXN_NOSYNC, 1)) != 0) {
     fatal("set flags: %s\n", db_strerror(ret));
-    exit(1);
-  }
-
-  /* set the number of transactions to the number of threads we might
-     have, plus one for the commit thread. default is 20. */
-  if ((ret = env->set_tx_max(env, MAXCONCURRENCY+1)) != 0) {
-    fatal("set_tx_max: %s\n", db_strerror(ret));
     exit(1);
   }
 
