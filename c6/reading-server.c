@@ -147,7 +147,8 @@ void db_open(struct config *conf) {
   /* with such large keys we need more cache to avoid constant disk
      seeks. */
   cache_gb = conf->cache_size / 1000;
-  cache_b = conf->cache_size % 1000;
+  cache_b = (conf->cache_size % 1000) * 1e6;
+  info("allocating %iGB and %iB cache\n", cache_gb, cache_b);
   if ((ret = env->set_cachesize(env, cache_gb, cache_b, 0)) != 0) {
     fatal("Error allocating cache error: %s\n", db_strerror(ret));
     exit(1);
