@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.61)
-AC_INIT(readingdb, 6.0, stevedh@eecs.berkeley.edu)
+AC_INIT(readingdb, 0.6, stevedh@eecs.berkeley.edu)
 AC_CONFIG_HEADER([config.h])
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -25,7 +25,7 @@ AS_IF([test "x$enable_compression_log" = "xyes"], AC_DEFINE([WRITE_COMPRESSION_L
 
 # Checks for header files.
 AC_HEADER_STDC
-AC_CHECK_HEADERS([stdlib.h string.h])
+AC_CHECK_HEADERS([stdlib.h string.h endian.h libkern/OSByteOrder.h])
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST

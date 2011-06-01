@@ -5,7 +5,8 @@ import readingdb as rdb
 
 end = 1304102690
 
-db = rdb.db_open(host='jackalope.cs.berkeley.edu', port=4243)
+db = rdb.db_open(host='localhost', port=4242)
+# db = rdb.db_open()
 rdb.db_substream(db, 0)
 
 S1MAX = 1000 * 100
@@ -49,7 +50,25 @@ elif sys.argv[1] == '-n':
         if i % 3600 == 0: prev -= 3600
         assert d[0][0] == prev
 elif sys.argv[1] == '-s':
-    print rdb.db_prev(db, 1, 10, n=10)
+    for i in xrange(1, 2000):
+        s = time.time()
+        x = rdb.db_prev(db, i, int(time.time()), n=10)
+        print len(x), (time.time() - s)
+elif sys.argv[1] == '-l':
+
+    for f in sys.argv[2:]:
+        with open(f, 'r') as fp:
+            add_vec = []
+            streamid = int(f[f.rindex('.')+1:])
+            for line in fp.readlines():
+                parts = line.strip().split(',')
+                print parts
+                assert len(parts) == 2
+                tuple = (int(parts[0]), 0, float(parts[1]))
+                add_vec.append(tuple)
+                if len(add_vec) == 100:
+                    rdb.db_add(db, streamid, add_vec)
+                    add_vec = []
 else:
     print "invalid argument"
 

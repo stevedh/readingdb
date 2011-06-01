@@ -53,7 +53,7 @@ struct sock_request *db_open(char *host, short port) {
     goto cleanup;
   }
 
-  if (connect(req->sock, &dest, sizeof(dest)) < 0) {
+  if (connect(req->sock, (struct sockaddr *)&dest, sizeof(dest)) < 0) {
     PyErr_Format(PyExc_IOError, "connect: %s", strerror(errno));
     goto cleanup;
   }

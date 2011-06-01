@@ -8,12 +8,12 @@ struct stats {
 };
 
 /* open the socket once */
-void stats_init(short port);
+void stats_init(unsigned short port);
 
 /* report the statistics to any listener */
 void stats_report(struct stats *s, struct timeval *ts);
 
-/* exitt */
+/* exit */
 void stats_close();
 
 #endif

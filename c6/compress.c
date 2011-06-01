@@ -1,14 +1,24 @@
 
+
 #include <time.h>
 #include <stdlib.h>
 #include <limits.h>
 #include <string.h>
-//#include <libkern/OSByteOrder.h>
-#include <endian.h>
 #include <zlib.h>
 #include <db.h>
 #include <arpa/inet.h>
 #include <assert.h>
+
+#include "config.h"
+#if HAVE_ENDIAN_H
+#include <endian.h>
+#elif HAVE_LIBKERN_OSBYTEORDER_H
+#include <libkern/OSByteOrder.h>
+#define htobe64(X) OSSwapHostToBigInt64(X)
+#else
+#error "No endian header found"
+#endif
+
 
 #include "readingdb.h"
 #include "rpc.h"

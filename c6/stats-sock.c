@@ -12,9 +12,9 @@
 #include "logging.h"
 #include "stats.h"
 
-static short sock = -1;
+static int sock = -1;
 
-void stats_init(short p) {
+void stats_init(unsigned short p) {
   struct sockaddr_in6 dest = {
     .sin6_family = AF_INET6,
     .sin6_addr = IN6ADDR_LOOPBACK_INIT,

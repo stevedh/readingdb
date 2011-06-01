@@ -9,6 +9,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/select.h>
 #include <fcntl.h>
 #include <semaphore.h>
 #include <string.h>
@@ -28,13 +29,13 @@
 #include "pbuf/rdb.pb-c.h"
 
 struct config {
-  int commit_interval;          /* seconds */
+  long commit_interval;          /* seconds */
   loglevel_t loglevel;
   char data_dir[FILENAME_MAX];
   unsigned short port;
-  int cache_size;
-  int deadlock_interval;
-  int checkpoint_interval;
+  long cache_size;
+  long deadlock_interval;
+  long checkpoint_interval;
 };
 struct config conf;
 
@@ -791,7 +792,7 @@ int optparse(int argc, char **argv, struct config *c) {
       break;
     case 'p':
       c->port = strtol(optarg, &endptr, 10);
-      if (c->port < 1024 || c->port > 0xffff) {
+      if (c->port < 1024) { //  || c->port > 0xffff) {
         fatal("Invalid port\n");
         return -1;
       }
@@ -1288,14 +1289,26 @@ int main(int argc, char **argv) {
     socklen_t addrlen = sizeof(struct sockaddr_in6);
     struct sock_request *req;
     pthread_t thread;
-    
-    client = accept(sock, (struct sockaddr *)&remote, &addrlen);
-    if (client < 0) {
-      if (errno != EAGAIN && errno != EINTR) {
-        log_fatal_perror("accept");
+    fd_set fs;
+
+    FD_ZERO(&fs);
+    FD_SET(sock, &fs);
+    now.tv_sec = 0;
+    now.tv_usec = 1e5;
+
+    /* use select to poll for new connections, since OSX doesn't cause
+       accept(2) to honor the RCVTIMEO we set earlier. */
+    if ((rc = select(sock+1, &fs, NULL, NULL, &now)) == 1 && FD_ISSET(sock, &fs)) {
+      client = accept(sock, (struct sockaddr *)&remote, &addrlen);
+      if (client < 0) {
+        if (errno != EAGAIN && errno != EINTR) {
+          log_fatal_perror("accept");
+        }
+        goto do_stats;
+        continue;
       }
+    } else {
       goto do_stats;
-      continue;
     }
     
     inet_ntop(AF_INET6, &remote.sin6_addr, addr_buf, sizeof(addr_buf));
