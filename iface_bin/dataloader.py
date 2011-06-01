@@ -17,13 +17,19 @@ class DataLoader:
     This can lead to lower latency when fetching data, in some cases.
     """
     class DataQueryThread(threading.Thread):
-        def __init__(self, parent):
+        def __init__(self, parent, host=None, full=False):
             threading.Thread.__init__(self)
             self.parent = parent
+            self.host = host
+            self.full = full
+            self.daemon = True
 
         def run(self):
             """Dequeue requests until we're done working"""
-            db = rdb4.db_open()
+            if self.host == None:
+                db = rdb4.db_open()
+            else:
+                db = rdb4.db_open(host=self.host[0], port=self.host[1])
             while True:
                 try:
                     request = self.parent.requests.get_nowait()
@@ -34,8 +40,17 @@ class DataLoader:
                 else:
                     rdb4.db_substream(db, 0)
 
-                result = rdb4.db_query(db, int(request['streamid']),
-                                       int(request['starttime']), int(request['endtime']))
+                first = True
+                result = []
+                last = []
+
+                while first or len(last) == 10000:
+                    last += rdb4.db_query(db, int(request['streamid']),
+                                          int(request['starttime']), int(request['endtime']))
+                    print len(last)
+                    result += last
+                    if not self.full: break
+
                 if self.parent.as_numpy and len(result) > 0:
                     result = np.array(result)
                     result = result[:,[0,2]]                      
@@ -43,7 +58,7 @@ class DataLoader:
 
             rdb4.db_close(db)
 
-    def __init__(self, requests, threads=MAX_THREADS, as_numpy=False):
+    def __init__(self, requests, threads=MAX_THREADS, as_numpy=False, host=None, full=False):
         """Get a new DataLoader.
 
         requests: a list of streams to load.  Each should be a dict
@@ -54,6 +69,8 @@ class DataLoader:
         self.requests = Queue.Queue()
         self.as_numpy = as_numpy
         self.returns = {}
+        self.host = host
+        self.full = full
         for r in requests:
             self.requests.put(r)
         self.n_threads = min(len(requests), threads)
@@ -66,7 +83,7 @@ class DataLoader:
         """
         threads = []
         for i in range(0, self.n_threads):
-            th = self.DataQueryThread(self)
+            th = self.DataQueryThread(self, host=self.host, full=self.full)
             th.start()
             threads.append(th)
         for th in threads:
