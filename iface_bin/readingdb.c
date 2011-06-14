@@ -13,8 +13,8 @@
 
 #include "readingdb_py.h"
 
-#include "../c/readingdb.h"
-#include "../c/rpc.h"
+#include "../c6/readingdb.h"
+#include "../c6/rpc.h"
 // #include "../c/pbuf/rdb.pb-c.h"
 
 #define TIMEOUT_SECS 10
