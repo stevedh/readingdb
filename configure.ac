@@ -3,7 +3,7 @@
 
 AC_PREREQ(2.61)
 AC_INIT(readingdb, 0.6, stevedh@eecs.berkeley.edu)
-AC_CONFIG_HEADER([config.h])
+AC_CONFIG_HEADER([c6/config.h])
 AC_CONFIG_MACRO_DIR([m4])
 
 # Checks for programs.
