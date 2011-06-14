@@ -1,5 +1,6 @@
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -11,8 +12,13 @@
 
 #include "logging.h"
 #include "stats.h"
+#include "util.h"
 
 static short sock = -1;
+struct pending_stat {
+  char *s_name;
+  struct timeval s_time;
+};
 
 void stats_init(short p) {
   struct sockaddr_in6 dest = {
@@ -30,6 +36,26 @@ void stats_init(short p) {
     warn("stats_init: connect: %s\n", strerror(errno));
     return;
   }
+}
+
+void *stats_tic(char *stat) {
+  struct pending_stat *b = malloc(sizeof(struct pending_stat));
+  if (!b) return NULL;
+  b->s_name = stat;
+  gettimeofday(&b->s_time, NULL);
+  return b;
+}
+
+void stats_toc(void *p) {
+  float d;
+  struct timeval now, delta;
+  struct pending_stat *pending_stat = p;
+  gettimeofday(&now, NULL);
+  timeval_subtract(&delta, &now, &pending_stat->s_time);
+  d = delta.tv_sec + (((float)delta.tv_usec) / 1e6);
+  free(p);
+
+  
 }
 
 void stats_report(struct stats *s, struct timeval *when) {

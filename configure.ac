@@ -11,6 +11,8 @@ AM_INIT_AUTOMAKE([-Wall])
 AC_PROG_CC
 AM_PROG_CC_C_O
 AC_PROG_RANLIB
+dnl AC_PROG_PYTHON
+dnl AC_PROG_SWIG
 
 # PKG_CHECK_MODULES([CHECK], [check >= 0.9.4]) 
 # Checks for libraries.
@@ -69,6 +71,6 @@ fi
 AC_CHECK_HEADERS(google/protobuf-c/protobuf-c.h)
 AC_SEARCH_LIBS(protobuf_c_message_pack, [protobuf-c], , AC_MSG_ERROR([ERROR: can't link against protobuf-c library]))
 
-AC_CONFIG_FILES([Makefile pbuf/Makefile])
-AC_CONFIG_SUBDIRS([hashtable/])
+AC_CONFIG_FILES([Makefile c6/Makefile c6/pbuf/Makefile iface_bin/Makefile])
+AC_CONFIG_SUBDIRS([c6/hashtable/])
 AC_OUTPUT

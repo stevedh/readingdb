@@ -64,7 +64,7 @@ if __name__ == '__main__':
     print "Importing from %i to %i" % (IMPORT_START, IMPORT_STOP)
 
     start = int(opts.startid)
-    for stream in range(start, int(opts.maxid)):
+    for stream in xrange(start, int(opts.maxid)):
         print "starting", stream
         first = True
         vec = [(IMPORT_START,)]

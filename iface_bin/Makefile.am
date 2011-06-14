@@ -2,6 +2,10 @@
 CFLAGS+=-Wall
 LDFLAGS+=
 
+all-local: module
+
+install-exec-local: module
+	python setup.py install --prefix $(prefix)
 
 module: readingdb.i readingdb_wrap.c ../c6/pbuf/rdb.pb-c.c
 	python setup.py build_ext --inplace
@@ -12,9 +16,9 @@ readingdb_wrap.c: readingdb.i ../c6/readingdb.h readingdb_py.h
 ../c6/pbuf/rdb.pb-c.c: ../c6/pbuf/rdb.proto
 	cd ../c6/pbuf/ && make
 
-clean:
-	rm _readingdb.so
-	python setup.py clean
+clean-local:
+	-rm -f _readingdb.so *.pyc
+	-python setup.py clean
 
-distclean: clean
-	rm -f readingdb_wrap.c
+distclean-local: clean
+	-rm -f readingdb_wrap.c

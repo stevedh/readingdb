@@ -45,10 +45,11 @@ class DataLoader:
                 last = []
 
                 while first or len(last) == 10000:
-                    last += rdb4.db_query(db, int(request['streamid']),
-                                          int(request['starttime']), int(request['endtime']))
+                    last = rdb4.db_query(db, int(request['streamid']),
+                                         int(request['starttime']),
+                                         int(request['endtime']))
                     print len(last)
-                    result += last
+                    # result += last
                     if not self.full: break
 
                 if self.parent.as_numpy and len(result) > 0:

@@ -1,8 +1,9 @@
 #ifndef _UTIL_H
 #define _UTIL_H
 
-/* IPC *ipc_open(int semflags, int memflags); */
-/* void ipc_close(IPC *ipp); */
+#include <db.h>
+#include "readingdb.h"
+
 void drop_priv(void);
 
 int timeval_subtract (struct timeval *result, struct timeval *x, struct timeval *y);
