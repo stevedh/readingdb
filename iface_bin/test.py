@@ -11,7 +11,7 @@ rdb.db_substream(db, 0)
 
 S1MAX = 1000 * 100
 if len(sys.argv) == 1:
-    print "%s [-a | -r | -n]" % sys.argv[0]
+    print "%s [-a | -r | -n | -d]" % sys.argv[0]
 elif sys.argv[1] == '-a':
     # substream 1 has every bucket filled
     for i in range(0, 1000):
@@ -24,14 +24,20 @@ elif sys.argv[1] == '-a':
 elif sys.argv[1] == '-r':
     # test that we read back what we wrote
     d = rdb.db_query(db, 1, 0, 10000)
+    print len(d)
     assert len(d) == 10000
     for i in xrange(0, 10000):
         assert d[i][0] == i
         assert d[i][1] == i
 
     d = rdb.db_query(db, 2, 0, 3600 * 10000)
+    print d[0:10]
     for i in xrange(0, 10000):
         assert d[i][0] == i * 3600
+elif sys.argv[1] == '-d': 
+    # test we can delete some data
+    d = rdb.db_del(db, 1, 0, 10000)
+    d = rdb.db_del(db, 2, 0, 1000000)
 elif sys.argv[1] == '-n':
     # test that db_next and db_prev iterate correctly through the data
     for i in xrange(0, 10000):

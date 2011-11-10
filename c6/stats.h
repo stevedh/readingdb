@@ -4,7 +4,7 @@
 #include <sys/time.h>
 
 struct stats {
-  int queries, adds, failed_adds, connects, disconnects, nearest;
+  int queries, adds, failed_adds, connects, disconnects, nearest, deletes;
 };
 
 /* open the socket once */

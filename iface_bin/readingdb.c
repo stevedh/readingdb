@@ -292,6 +292,39 @@ PyObject *db_prev(struct sock_request *ipp, int streamid,
   return db_iter(ipp, streamid, reference, NEAREST__DIRECTION__PREV, n);
 }
 
+void db_del(struct sock_request *ipp, 
+                 unsigned long long streamid, 
+                 unsigned long long starttime, 
+                 unsigned long long endtime) {
+  struct pbuf_header h;
+  Delete d = DELETE__INIT;
+  unsigned char buf[512];
+  int len;
+  d.streamid = streamid;
+  d.substream = ipp->substream;
+  d.starttime = starttime;
+  d.endtime = endtime;
+
+  if ((len = delete__get_packed_size(&d)) > sizeof(buf)) {
+    goto error;
+  }
+
+  delete__pack(&d, buf);
+  h.message_type = htonl(MESSAGE_TYPE__DELETE);
+  h.body_length = htonl(len);
+  /* send it */
+  if (fwrite(&h, sizeof(h), 1, ipp->sock_fp) <= 0)
+    goto error;
+  if (fwrite(buf, len , 1, ipp->sock_fp) <= 0)
+    goto error;
+  fflush(ipp->sock_fp);
+  return;
+ error:
+  PyErr_SetString(PyExc_IOError, "db_del: generic error");
+  return;
+}
+
+
 void db_close(struct sock_request *ipp) {
   fclose(ipp->sock_fp);
   free(ipp);

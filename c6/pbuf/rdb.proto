@@ -48,6 +48,13 @@ message Nearest {
   optional uint32 n = 5;             
 }
 
+message Delete {
+  required uint32 streamid = 1;
+  required uint32 substream = 2;
+  required uint64 starttime = 3;
+  required uint64 endtime = 4;
+}
+ 
 message Response {
   enum ErrorCode {
     OK = 1;
@@ -64,6 +71,7 @@ enum MessageType {
   READINGSET = 2;
   RESPONSE = 3;
   NEAREST = 4;
+  DELETE = 5;
 }
 
 service ReadingDB {

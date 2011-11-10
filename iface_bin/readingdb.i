@@ -39,3 +39,7 @@ PyObject * db_prev(struct sock_request *dbp, int streamid, unsigned long long re
   if (!result) return NULL;
 }
 int db_add(struct sock_request *dbp, int streamid, PyObject *data);
+
+void db_del(struct sock_request *dbp, int streamid, 
+            unsigned long long starttime,
+            unsigned long long endtime);
