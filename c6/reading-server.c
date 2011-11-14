@@ -357,6 +357,8 @@ int add(DB *dbp, ReadingSet *rs) {
       if (bucket_valid == TRUE && 
           (ret = put(dbp, tid, &cur_k, v, POINT_OFF(v->n_valid))) < 0) {
         warn("error writing back data: %s\n", db_strerror(ret));
+        // we will loose data, aborto the transaction.
+        goto abort;
       }
       bucket_valid = FALSE;
 
@@ -432,6 +434,7 @@ int add(DB *dbp, ReadingSet *rs) {
           (ret = put(dbp, tid, &cur_k, v, POINT_OFF(v->n_valid))) < 0) {
         bucket_valid = FALSE;
         warn("error writing back data: %s\n", db_strerror(ret));
+        goto abort;
       }
 
       if (split_bucket(dbp, cursorp, tid, &cur_k) < 0)
@@ -446,6 +449,7 @@ int add(DB *dbp, ReadingSet *rs) {
     assert(POINT_OFF(v->n_valid) < sizeof(buf));
     if ((ret = put(dbp, tid, &cur_k, v, POINT_OFF(v->n_valid))) < 0) {
       warn("error writing back data: %s\n", db_strerror(ret));
+      goto abort;
     }
   }
 
@@ -453,7 +457,12 @@ int add(DB *dbp, ReadingSet *rs) {
 
   if ((ret = tid->commit(tid, 0)) != 0) {
     fatal("transaction commit failed: %s\n", db_strerror(ret));
-    do_shutdown = 1;
+    // SDH : "If DB_TXN->commit() encounters an error, the transaction
+    //  and all child transactions of the transaction are aborted."
+    //
+    // So, we can just die here.
+    // do_shutdown = 1;
+    return -1;
   }
   return 0;
 
@@ -464,6 +473,7 @@ int add(DB *dbp, ReadingSet *rs) {
   if ((ret = tid->abort(tid)) != 0) {
     fatal("Could not abort transaction: %s\n", db_strerror(ret));
     // do_shutdown = 1;
+    // SDH : there are no documented error codes for DB_TXN->abort().
     assert(0);
   }
   return -1;
@@ -515,6 +525,7 @@ int add_enqueue(ReadingSet *rs, Response *reply) {
       if (add(dbs[rs->substream].dbp, rs) < 0) {
         warn("Retry failed... giving up\n");
         INCR_STAT(failed_adds);
+        return -1;
       }
     }
   } else {
@@ -935,7 +946,7 @@ void process_pbuf(struct sock_request *request) {
       response.data->streamid = q->streamid;
       response.data->substream = q->substream;
       response.data->n_data = 0;
-      query(dbs[q->substream].dbp, q, &response);
+      query(dbs[q->substream].dbp, q, &response); 
       rpc_send_reply(request, &response);
       query__free_unpacked(q, NULL);
       _rpc_free_rs(response.data);
@@ -943,7 +954,9 @@ void process_pbuf(struct sock_request *request) {
     case MESSAGE_TYPE__READINGSET:
       rs = reading_set__unpack(NULL, ntohl(h.body_length), buf);
       if (!rs) goto abort;
-      if (rs->substream < 0 || rs->substream >= MAX_SUBSTREAMS) {
+      if (rs->substream < 0 || 
+          rs->substream >= MAX_SUBSTREAMS ||
+          rs->n_data > MAXRECS) {
         response.error = RESPONSE__ERROR_CODE__FAIL_PARAM;
         rpc_send_reply(request, &response);
         reading_set__free_unpacked(rs, NULL);
@@ -974,6 +987,9 @@ void process_pbuf(struct sock_request *request) {
         nearest__free_unpacked(n, NULL);
         goto abort;
       }
+      response.data->streamid = n->streamid;
+      response.data->substream = n->substream;
+      response.data->n_data = 0;
       query_nearest(dbs[n->substream].dbp, n, &response);
       rpc_send_reply(request, &response);
       nearest__free_unpacked(n, NULL);
