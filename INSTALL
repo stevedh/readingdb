@@ -1,6 +1,29 @@
 Installation Instructions
 *************************
 
+Dependencies
+============
+
+On debian, you may install the dependencies using apt:
+
+apt-get install libdb4.8 libdb4.8-dev libprotobuf-c0 libprotobuf-c0-dev \
+    libprotobuf6 libprotoc6 protobuf-c-compiler swig apt-python-dev
+
+This installs:
+
+ * Berkeley database 4.8
+ * Google protocol buffer libraries (c++) and compiler
+ * C compiler for the protocol buffer library
+ * swig
+ * the python development headers
+
+You'll also need something like build-essential with make and a
+compiler, if you don't have it already.
+
+Once you've done this, you should be able to compile and install
+readingdb as usual.  This procedure builds and install both the
+database server and a python module to access it remotely.  
+
 Copyright (C) 1994, 1995, 1996, 1999, 2000, 2001, 2002, 2004, 2005,
 2006, 2007, 2008, 2009 Free Software Foundation, Inc.
 

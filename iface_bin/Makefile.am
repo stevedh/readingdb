@@ -2,6 +2,8 @@
 CFLAGS+=-Wall
 LDFLAGS+=
 
+EXTRA_DIST=setup.py readingdb.i readingdb_py.h readingdb.c
+
 all-local: module
 
 install-exec-local: module

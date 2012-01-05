@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.61)
-AC_INIT(readingdb, 0.6, stevedh@eecs.berkeley.edu)
+AC_INIT(readingdb, 6.2, stevedh@eecs.berkeley.edu)
 AC_CONFIG_HEADER([c6/config.h])
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -40,25 +40,25 @@ AC_CHECK_FUNCS([memset])
 
 # bdb
 AC_SEARCH_LIBS(db_strerror, [db], , AC_MSG_ERROR([ERROR: can't link against berkeley db]))
-AC_MSG_CHECKING(for acceptable berkeley db version)
-# there's got to be a better way to check library versions...  
-# we require >= 4.8.28 since (a) they changed the on-disk format then
-# and I don't want to deal with the old one, and (b) pretty sure
-# that's when they added compression.
-AC_COMPILE_IFELSE(AC_LANG_PROGRAM([#include <db.h>], [
-# if DB_VERSION_MAJOR >= 4
-#  if DB_VERSION_MINOR >= 8
-#   if DB_VERSION_PATCH >= 28
-#   else
-#    error
-#   endif
-#  else
-#   error
-#  endif
-# else
-#  error
-# endif
-]), AC_MSG_RESULT([yes]), AC_MSG_ERROR([Wrong bdb version: >= 4.8.28 required]))
+dnl AC_MSG_CHECKING(for acceptable berkeley db version)
+dnl # there's got to be a better way to check library versions...  
+dnl # we require >= 4.8.28 since (a) they changed the on-disk format then
+dnl # and I don't want to deal with the old one, and (b) pretty sure
+dnl # that's when they added compression.
+dnl AC_COMPILE_IFELSE(AC_LANG_PROGRAM([#include <db.h>], [
+dnl # if DB_VERSION_MAJOR >= 4
+dnl #  if DB_VERSION_MINOR >= 8
+dnl #   if DB_VERSION_PATCH >= 28
+dnl #   else
+dnl #    error
+dnl #   endif
+dnl #  else
+dnl #   error
+dnl #  endif
+dnl # else
+dnl #  error
+dnl # endif
+dnl ]), AC_MSG_RESULT([yes]), AC_MSG_ERROR([Wrong bdb version: >= 4.8.28 required]))
 
 # assume they have pthreads for now...
 

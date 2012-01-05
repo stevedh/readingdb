@@ -4,7 +4,7 @@
 #include <Python.h>
 #include <stdint.h>
 
-#include "../c/readingdb.h"
+#include "../c6/readingdb.h"
 
 /* exported python definition */
 struct sock_request *db_open(char *host, short port);
