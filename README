@@ -1,0 +1,30 @@
+
+readingdb is a time-series database designed for efficiency and speed.
+
+Time series data is any data which is a series of (time, sequence,
+value) points.  ReadingDB buckets and compresses your data using a
+delta encoding and zlib, and then writes this into a bdb installation
+with a bdb index.  It uses the bdb transaction manager for write-ahead
+logging so that the volume will not become corrupted.
+
+To use it, first follow the instructions in INSTALL to build the
+database and the python interface module.  The key objects in
+readingdb are "streams", which have an integer id.  The readingdb
+python module lets you talk to the server process; traffic between the
+client and server is encoded using google protocol buffer definitions
+found in c6/pbuf.
+
+A simple python script for inserting data would be:
+
+--
+import readingdb as rdb
+
+db = rdb.db_open('localhost')
+rdb.db_add(db, 1, [(x, 0, x) for x in xrange(0, 100)])
+print rdb.db_query(db, 1, 0, 100)
+rdb.db_close(db)
+--
+
+ReadingDB supports efficient range querying and interation using the
+db_query, db_prev, and db_next operations; you can delete data with
+db_del.
