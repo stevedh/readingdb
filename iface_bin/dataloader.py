@@ -48,8 +48,9 @@ class DataLoader:
                     last = rdb4.db_query(db, int(request['streamid']),
                                          int(request['starttime']),
                                          int(request['endtime']))
+                    first = False
                     print len(last)
-                    # result += last
+                    result.extend(last)
                     if not self.full: break
 
                 if self.parent.as_numpy and len(result) > 0:

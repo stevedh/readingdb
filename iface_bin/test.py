@@ -3,6 +3,8 @@ import sys
 import time
 import readingdb as rdb
 
+print "using readingdb", rdb.__file__
+
 end = 1304102690
 
 db = rdb.db_open(host='localhost', port=4242)
@@ -11,7 +13,7 @@ rdb.db_substream(db, 0)
 
 S1MAX = 1000 * 100
 if len(sys.argv) == 1:
-    print "%s [-a | -r | -n | -d]" % sys.argv[0]
+    print "%s [-a | -r | -n | -d | -c]" % sys.argv[0]
 elif sys.argv[1] == '-a':
     # substream 1 has every bucket filled
     for i in range(0, 1000):
@@ -48,6 +50,8 @@ elif sys.argv[1] == '-n':
             assert len(d) == 0
         else:
             assert d[0][0] == i - 1
+        if not i % 100:
+            print '.',
     for i in xrange(1, 100000):
         d = rdb.db_next(db, 2, i)
         assert d[0][0] == (i + 3600 - (i % 3600))
@@ -55,13 +59,14 @@ elif sys.argv[1] == '-n':
         prev =  i - 3600 + (3600 - (i % 3600))
         if i % 3600 == 0: prev -= 3600
         assert d[0][0] == prev
+        if not i % 1000:
+            print '.', 
 elif sys.argv[1] == '-s':
     for i in xrange(1, 2000):
         s = time.time()
         x = rdb.db_prev(db, i, int(time.time()), n=10)
         print len(x), (time.time() - s)
 elif sys.argv[1] == '-l':
-
     for f in sys.argv[2:]:
         with open(f, 'r') as fp:
             add_vec = []
@@ -75,6 +80,9 @@ elif sys.argv[1] == '-l':
                 if len(add_vec) == 100:
                     rdb.db_add(db, streamid, add_vec)
                     add_vec = []
+elif sys.argv[1] == '-c':
+    assert rdb.db_count(db, 1, 0, 0xffffffff)[0][2] == 100000
+    assert rdb.db_count(db, 2, 0, 0xffffffff)[0][2] == 10000
 else:
     print "invalid argument"
 

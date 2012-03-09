@@ -12,7 +12,7 @@
 #include <fcntl.h>
 
 
-#define DATA_DIR "/mnt/sdb1/data"
+#define DATA_DIR "/var/readingdb"
 #define MAX_SUBSTREAMS 10
 
 /* max number of client threads */

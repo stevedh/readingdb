@@ -22,6 +22,14 @@ PyObject *db_query(struct sock_request *dbp, unsigned long long streamid,
         unsigned long long starttime, 
         unsigned long long endtime);
 
+%exception db_count {
+  $action
+  if (!result) return NULL;
+}
+PyObject *db_count(struct sock_request *dbp, unsigned long long streamid, 
+        unsigned long long starttime, 
+        unsigned long long endtime);
+
 %exception db_next {
   $action
   if (!result) return NULL;

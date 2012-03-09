@@ -15,6 +15,7 @@
 
 #include "../c6/readingdb.h"
 #include "../c6/rpc.h"
+#include "../c6/commands.h"
 // #include "../c/pbuf/rdb.pb-c.h"
 
 #define TIMEOUT_SECS 10
@@ -184,6 +185,10 @@ PyObject * read_resultset(struct sock_request *ipp) {
   }
 /*   printf("Received reply code: %i results: %li len: %i\n", */
 /*          r->error, r->data->n_data, len); */
+  if (r->error != RESPONSE__ERROR_CODE__OK) {
+    PyErr_Format(PyExc_Exception, "read_resultset: received error from server: %i", r->error);
+    return NULL;
+  }
 
   /* build the python data structure  */
   ret = PyList_New(r->data->n_data);
@@ -211,9 +216,10 @@ PyObject * read_resultset(struct sock_request *ipp) {
   return ret;
 }
 
-PyObject *db_query(struct sock_request *ipp, unsigned long long streamid, 
-                   unsigned long long starttime, 
-                   unsigned long long endtime) {
+PyObject *db_query_all(struct sock_request *ipp, unsigned long long streamid, 
+                       unsigned long long starttime, 
+                       unsigned long long endtime,
+                       enum query_action action) {
   Query q = QUERY__INIT; 
   struct pbuf_header h;
   unsigned char buf [512];
@@ -223,6 +229,8 @@ PyObject *db_query(struct sock_request *ipp, unsigned long long streamid,
   q.substream = ipp->substream;
   q.starttime = starttime;
   q.endtime = endtime;
+  q.has_action = 1;
+  q.action = action;
 
   if ((len = query__get_packed_size(&q)) < sizeof(buf)) {
     /* pack the request */
@@ -242,6 +250,19 @@ PyObject *db_query(struct sock_request *ipp, unsigned long long streamid,
   PyErr_Format(PyExc_IOError, "db_query: error writing: %s", strerror(errno));
   return NULL;
 }
+
+PyObject *db_query(struct sock_request *ipp, unsigned long long streamid, 
+                   unsigned long long starttime, 
+                   unsigned long long endtime) {
+  return db_query_all(ipp, streamid, starttime, endtime, QUERY_DATA);
+}
+
+PyObject *db_count(struct sock_request *ipp, unsigned long long streamid, 
+                   unsigned long long starttime, 
+                   unsigned long long endtime) {
+  return db_query_all(ipp, streamid, starttime, endtime, QUERY_COUNT);
+}
+
 
 PyObject *db_iter(struct sock_request *ipp, int streamid, 
                   unsigned long long reference, int direction, int ret_n) {
@@ -293,9 +314,9 @@ PyObject *db_prev(struct sock_request *ipp, int streamid,
 }
 
 void db_del(struct sock_request *ipp, 
-                 unsigned long long streamid, 
-                 unsigned long long starttime, 
-                 unsigned long long endtime) {
+            unsigned long long streamid, 
+            unsigned long long starttime, 
+            unsigned long long endtime) {
   struct pbuf_header h;
   Delete d = DELETE__INIT;
   unsigned char buf[512];

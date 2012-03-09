@@ -34,6 +34,7 @@ message Query {
   required uint32 substream = 2;
   required uint32 starttime = 3;
   required uint32 endtime = 4;
+  optional uint32 action = 5;
 }
 
 message Nearest {

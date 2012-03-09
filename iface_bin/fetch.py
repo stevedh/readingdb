@@ -18,10 +18,10 @@ if __name__ == '__main__':
         reqvec.append({'streamid': int(stream),
                        'starttime': 0,
                        'endtime': 2**32 - 10})
-    loader = dataloader.DataLoader(reqvec, host=("gecko.cs.berkeley.edu", 4242), full=True)
+    loader = dataloader.DataLoader(reqvec, host=("gecko.cs.berkeley.edu", 4243), full=True)
     data = loader.run()
     if opts.output == '-':
-        #print data
+        print data
         pass
     else:
         for k,d in data.iteritems():
