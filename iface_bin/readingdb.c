@@ -21,7 +21,7 @@
 #define TIMEOUT_SECS 10
 #define SIGREPLACE SIGTERM
 
-struct sock_request *db_open(char *host, short port) {
+struct sock_request *db_open(const char *host, const short port) {
   struct sock_request *req = malloc(sizeof(struct sock_request));
   struct addrinfo *res, hints;
   struct sockaddr_in dest;
@@ -216,7 +216,7 @@ PyObject * read_resultset(struct sock_request *ipp) {
   return ret;
 }
 
-PyObject *db_query_all(struct sock_request *ipp, unsigned long long streamid, 
+int db_query_all(struct sock_request *ipp, unsigned long long streamid, 
                        unsigned long long starttime, 
                        unsigned long long endtime,
                        enum query_action action) {
@@ -244,25 +244,37 @@ PyObject *db_query_all(struct sock_request *ipp, unsigned long long streamid,
       goto write_error;
     fflush(ipp->sock_fp);
 
-    return read_resultset(ipp);
+    return 0; 
   }
  write_error:
-  PyErr_Format(PyExc_IOError, "db_query: error writing: %s", strerror(errno));
-  return NULL;
+  return -errno;
 }
 
 PyObject *db_query(struct sock_request *ipp, unsigned long long streamid, 
                    unsigned long long starttime, 
                    unsigned long long endtime) {
-  return db_query_all(ipp, streamid, starttime, endtime, QUERY_DATA);
+  int rv;
+  rv = db_query_all(ipp, streamid, starttime, endtime, QUERY_DATA);
+  if (rv != 0) {
+    PyErr_Format(PyExc_IOError, "db_query: error writing: %s", strerror(errno));
+    return NULL;
+  } else {
+    return read_resultset(ipp);
+  }
 }
 
 PyObject *db_count(struct sock_request *ipp, unsigned long long streamid, 
                    unsigned long long starttime, 
                    unsigned long long endtime) {
-  return db_query_all(ipp, streamid, starttime, endtime, QUERY_COUNT);
+  int rv;
+  rv = db_query_all(ipp, streamid, starttime, endtime, QUERY_COUNT);
+  if (rv != 0) {
+    PyErr_Format(PyExc_IOError, "db_query: error writing: %s", strerror(errno));
+    return NULL;
+  } else {
+    return read_resultset(ipp);
+  }
 }
-
 
 PyObject *db_iter(struct sock_request *ipp, int streamid, 
                   unsigned long long reference, int direction, int ret_n) {

@@ -21,6 +21,7 @@ void query(DB *dbp, Query *q, Response *r, enum query_action action) {
   struct rec_val v;
   unsigned long long starttime, endtime;
   int streamid;
+  int cursor_flags = 0;
   
   streamid = q->streamid;
   starttime = q->starttime;
@@ -31,28 +32,32 @@ void query(DB *dbp, Query *q, Response *r, enum query_action action) {
   k.stream_id = streamid;
   k.timestamp = starttime - (starttime % bucket_sizes[NBUCKETSIZES-1]);
 
-  ret = dbp->cursor(dbp, NULL, &cursorp, 0);
-  if (cursorp == NULL) {
-    dbp->err(dbp, ret, "cursor");
-    return;
-  }
-
-  if (get_partial(cursorp, DB_SET_RANGE, &k, &v, sizeof(struct rec_val), 0) != 0) {
-    goto done;
-  }
-
   switch (action) {
   case QUERY_COUNT:
     /* initialize our return with one guy in it */
     reading__init(r->data->data[0]);
-    r->data->data[0]->timestamp = time(NULL);
-    r->data->n_data = 1;
+    reading__init(r->data->data[1]);
+    r->data->data[0]->timestamp = 
+      r->data->data[1]->timestamp = 
+      time(NULL);
+    r->data->n_data = 2;
     break;
   case QUERY_DATA:
     break;
   default:
     /* invalid request type */
     r->error = RESPONSE__ERROR_CODE__FAIL_PARAM;
+    return;
+  }
+
+  ret = dbp->cursor(dbp, NULL, &cursorp, cursor_flags);
+  if (cursorp == NULL) {
+    dbp->err(dbp, ret, "cursor");
+    r->error = RESPONSE__ERROR_CODE__FAIL;
+    return;
+  }
+
+  if (get_partial(cursorp, DB_SET_RANGE, &k, &v, sizeof(struct rec_val), 0) != 0) {
     goto done;
   }
 
@@ -88,6 +93,7 @@ void query(DB *dbp, Query *q, Response *r, enum query_action action) {
       break;
     case QUERY_COUNT:
       r->data->data[0]->value += v.n_valid;
+      r->data->data[1]->value += 1;
       break;
     }
   next:
