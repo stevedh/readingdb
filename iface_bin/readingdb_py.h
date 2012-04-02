@@ -37,6 +37,7 @@ void db_setup(char *a_host,
               int a_substream);
 PyObject *db_multiple(unsigned long long *streamids,
                       unsigned long long starttime, 
-                      unsigned long long endtime);
+                      unsigned long long endtime,
+                      int limit);
 
 #endif

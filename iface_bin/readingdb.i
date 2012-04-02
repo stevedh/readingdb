@@ -55,7 +55,8 @@ PyObject *db_query(struct sock_request *dbp, unsigned long long streamid,
 }
 PyObject *db_multiple(unsigned long long *streamids,
                       unsigned long long starttime, 
-                      unsigned long long endtime);
+                      unsigned long long endtime,
+                      int limit=10000);
 
 
 void db_setup(char *a_host, 

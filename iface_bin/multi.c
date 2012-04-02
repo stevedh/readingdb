@@ -21,8 +21,6 @@
 #include "../c6/rpc.h"
 #include "../c6/commands.h"
 
-#define PARALLELISM 5
-
 static char *host;
 static short port;
 static int workers;
@@ -63,6 +61,8 @@ struct request {
 
   struct np_point **return_data;
   int *return_data_len;
+  int limit;
+  int errors;
 };
 
 int read_numpy_resultset(struct sock_request *ipp, 
@@ -103,6 +103,7 @@ int read_numpy_resultset(struct sock_request *ipp,
     *buf = malloc(sizeof(struct np_point) * r->data->n_data);
   } else {
     *buf = realloc(*buf, sizeof(struct np_point) * (r->data->n_data + *off));
+    // printf("reallocing\n");
   }
   for (i = *off; i < *off + r->data->n_data; i++) {
     ((struct np_point *)(*buf))[i].ts = r->data->data[i - *off]->timestamp;
@@ -117,7 +118,7 @@ int read_numpy_resultset(struct sock_request *ipp,
 
 void * worker_thread(struct request *req) {
   struct sock_request *conn;
-  int id, idx, rv = 0;
+  int id, idx, limit, rv = 0;
   unsigned long long starttime;
 
   // don't need a lock, this might block
@@ -135,6 +136,7 @@ void * worker_thread(struct request *req) {
     }
     pthread_mutex_unlock(&req->lock);
     starttime = req->starttime;
+    limit = req->limit;
 
     // printf("starting load of %i (%i)\n", id, idx);
     if (id == 0) {
@@ -146,21 +148,23 @@ void * worker_thread(struct request *req) {
       rv = db_query_all(conn, id, starttime, req->endtime, QUERY_DATA);
       if (rv < 0) {
         fprintf(stderr, "Error from DB: %s", strerror(rv));
-        goto done;
+        req->errors++;
+        break;
       }
       rv = read_numpy_resultset(conn, &req->return_data[idx], &req->return_data_len[idx]);
       if (rv < 0) {
         fprintf(stderr, "Error reading results: %s", strerror(rv));
-        goto done;
-      } else if (rv < 10000) {
+        req->errors++;
+        break;
+      } else if (rv < 10000 || limit - rv <= 0) {
         break;
       }
+      limit -= rv;
       starttime = req->return_data[idx][req->return_data_len[idx]-1].ts + 1;
     }
   }
- done:
   db_close(conn);
-  return (void *)rv;
+  return NULL;
 }
 
 PyObject *make_numpy_list(struct request *req) {
@@ -172,20 +176,35 @@ PyObject *make_numpy_list(struct request *req) {
   }
   for (i = 0; i < req->n_streams; i++) {
     npy_intp dims[2];
-    dims[0] = req->return_data_len[i]; dims[1] = 2;
-    a = PyArray_SimpleNewFromData(2, dims, NPY_DOUBLE, (void *)req->return_data[i]);
+    int length = min(req->limit, req->return_data_len[i]);
 
-    // pass the array to numpy.  this is considered harmfull,
-    // apparently, since if they stop using malloc things will go bad.
-    PyArray_UpdateFlags((PyArrayObject *)a, NPY_OWNDATA | NPY_C_CONTIGUOUS | NPY_WRITEABLE);
-    PyList_SetItem(r, i, a);
+    if (req->return_data) {
+      dims[0] = length; dims[1] = 2;
+      // a = PyArray_SimpleNewFromData(2, dims, NPY_DOUBLE, (void *)req->return_data[i]);
+
+      // memcpy into a new array because there's no way to pass off the
+      // buffer that will be safe...
+      a = PyArray_SimpleNew(2, dims, NPY_DOUBLE);
+      memcpy(PyArray_DATA(a), req->return_data[i], 
+             (length * sizeof(struct np_point)));
+      free(req->return_data[i]);
+
+      // pass the array to numpy.  this is considered harmfull,
+      // apparently, since if they stop using malloc things will go bad.
+      // PyArray_UpdateFlags((PyArrayObject *)a, NPY_OWNDATA | NPY_C_CONTIGUOUS | NPY_WRITEABLE);
+      PyList_SetItem(r, i, a);
+    } else {
+      Py_INCREF(Py_None);
+      PyList_SetItem(r, i, Py_None);
+    }
   }
   return r;
 }
 
 PyObject *db_multiple(unsigned long long *streamids,
                       unsigned long long starttime, 
-                      unsigned long long endtime) {
+                      unsigned long long endtime,
+                      int limit) {
     // set up a request;
   PyThreadState *_save;
   PyObject *rv;
@@ -194,14 +213,18 @@ PyObject *db_multiple(unsigned long long *streamids,
     .port = port,
     .substream = substream,
     .starttime = starttime, 
-    .endtime = endtime
+    .endtime = endtime,
+    .limit = limit,
+    .errors = 0,
   };
   pthread_t threads[workers];
   int n_streams, i, success = 1;
 
   _save = PyEval_SaveThread();
   for (n_streams = 0; streamids[n_streams] != 0; n_streams++);
-/*   printf("loading %i streams\n", n_streams); */
+  // printf("loading %i streams limit %i\n", n_streams, limit);
+  if (req.limit < 0)
+    req.limit = 1e5;
 
   pthread_mutex_init(&req.lock, NULL);
   req.next_streamid = 0;
@@ -217,22 +240,26 @@ PyObject *db_multiple(unsigned long long *streamids,
     return NULL;
   }
   memset(req.return_data_len, 0, sizeof(int) * n_streams);
+  for (i = 0; i < n_streams; i++) req.return_data[i] = NULL;
 
   if (0) {
     worker_thread(&req);
   } else {
-    for (i = 0; i < workers; i++) {
+    int my_workers = min(n_streams, workers);
+    // printf("starting %i workers\n", my_workers);
+    for (i = 0; i < my_workers; i++) {
       pthread_create(&threads[i], NULL, worker_thread, &req);
     }
-    for (i = 0; i < workers; i++) {
+    for (i = 0; i < my_workers; i++) {
       void *code;
       pthread_join(threads[i], &code);
     }
   }
 
   PyEval_RestoreThread(_save);
-  if (success) {
-    rv =  make_numpy_list(&req);
+  // printf("req errors %i\n", req.errors);
+  if (!req.errors) {
+    rv = make_numpy_list(&req);
     free(req.return_data_len);
     return rv;
   } else {
