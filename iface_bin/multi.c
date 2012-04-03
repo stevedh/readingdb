@@ -147,15 +147,15 @@ void * worker_thread(struct request *req) {
     while (1) {
       rv = db_query_all(conn, id, starttime, req->endtime, QUERY_DATA);
       if (rv < 0) {
-        fprintf(stderr, "Error from DB: %s", strerror(rv));
+        fprintf(stderr, "Error from DB: %s\n", strerror(-rv));
         req->errors++;
-        break;
+        goto done;
       }
       rv = read_numpy_resultset(conn, &req->return_data[idx], &req->return_data_len[idx]);
       if (rv < 0) {
-        fprintf(stderr, "Error reading results: %s", strerror(rv));
+        fprintf(stderr, "Error reading results: %s\n", strerror(-rv));
         req->errors++;
-        break;
+        goto done;
       } else if (rv < 10000 || limit - rv <= 0) {
         break;
       }
@@ -163,6 +163,7 @@ void * worker_thread(struct request *req) {
       starttime = req->return_data[idx][req->return_data_len[idx]-1].ts + 1;
     }
   }
+ done:
   db_close(conn);
   return NULL;
 }
@@ -272,5 +273,3 @@ PyObject *db_multiple(unsigned long long *streamids,
     return NULL;
   }
 }
-
-
