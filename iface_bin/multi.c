@@ -179,24 +179,22 @@ PyObject *make_numpy_list(struct request *req) {
     npy_intp dims[2];
     int length = min(req->limit, req->return_data_len[i]);
 
-    if (req->return_data) {
+    if (req->return_data && length > 0) {
       dims[0] = length; dims[1] = 2;
-      // a = PyArray_SimpleNewFromData(2, dims, NPY_DOUBLE, (void *)req->return_data[i]);
-
-      // memcpy into a new array because there's no way to pass off the
-      // buffer that will be safe...
+      // memcpy into a new array because there's apparently no way to
+      // pass off the buffer that will be safe...
       a = PyArray_SimpleNew(2, dims, NPY_DOUBLE);
       memcpy(PyArray_DATA(a), req->return_data[i], 
              (length * sizeof(struct np_point)));
       free(req->return_data[i]);
 
-      // pass the array to numpy.  this is considered harmfull,
-      // apparently, since if they stop using malloc things will go bad.
-      // PyArray_UpdateFlags((PyArrayObject *)a, NPY_OWNDATA | NPY_C_CONTIGUOUS | NPY_WRITEABLE);
+      // donate the ref we got
       PyList_SetItem(r, i, a);
     } else {
-      Py_INCREF(Py_None);
-      PyList_SetItem(r, i, Py_None);
+      npy_intp dims[2] = {0, 2};
+      // otherwise return an empty array with the proper dimension.
+      // n.b. PyArray_SimpleNew segfaults if any dimensions are zero...
+      PyList_SetItem(r, i, PyArray_EMPTY(2, dims, NPY_DOUBLE, 0));
     }
   }
   return r;
