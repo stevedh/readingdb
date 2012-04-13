@@ -100,11 +100,18 @@ int read_numpy_resultset(struct sock_request *ipp,
 
   /* build the python data structure  */
   if (*buf == NULL || *off == 0) {
-    *buf = malloc(sizeof(struct np_point) * r->data->n_data);
+    len = sizeof(struct np_point) * r->data->n_data;
+    *buf = malloc(len);
   } else {
-    *buf = realloc(*buf, sizeof(struct np_point) * (r->data->n_data + *off));
+    len = sizeof(struct np_point) * (r->data->n_data + *off);
+    *buf = realloc(*buf, len);
     // printf("reallocing\n");
   }
+  if (!*buf) {
+    fprintf(stderr, "Alloc/realloc failed: request: %i\n", len);
+    return -1;
+  }
+
   for (i = *off; i < *off + r->data->n_data; i++) {
     ((struct np_point *)(*buf))[i].ts = r->data->data[i - *off]->timestamp;
     ((struct np_point *)(*buf))[i].val = r->data->data[i - *off]->value;
@@ -184,12 +191,18 @@ PyObject *make_numpy_list(struct request *req) {
       // memcpy into a new array because there's apparently no way to
       // pass off the buffer that will be safe...
       a = PyArray_SimpleNew(2, dims, NPY_DOUBLE);
-      memcpy(PyArray_DATA(a), req->return_data[i], 
-             (length * sizeof(struct np_point)));
-      free(req->return_data[i]);
+      if (!a) {
+        Py_DECREF(r);
+        free(req->return_data[i]);
+        return PyErr_NoMemory();
+      } else {
+        memcpy(PyArray_DATA(a), req->return_data[i], 
+               (length * sizeof(struct np_point)));
+        free(req->return_data[i]);
 
-      // donate the ref we got
-      PyList_SetItem(r, i, a);
+        // donate the ref we got
+        PyList_SetItem(r, i, a);
+      }
     } else {
       npy_intp dims[2] = {0, 2};
       // otherwise return an empty array with the proper dimension.
@@ -259,6 +272,7 @@ PyObject *db_multiple(unsigned long long *streamids,
   // printf("req errors %i\n", req.errors);
   if (!req.errors) {
     rv = make_numpy_list(&req);
+    free(req.return_data);
     free(req.return_data_len);
     return rv;
   } else {
@@ -266,6 +280,7 @@ PyObject *db_multiple(unsigned long long *streamids,
       if (req.return_data[i])
         free(req.return_data[i]);
     }
+    free(req.return_data);
     free(req.return_data_len);
     PyErr_Format(PyExc_Exception, "error reading data");
     return NULL;
