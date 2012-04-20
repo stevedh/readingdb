@@ -21,19 +21,21 @@
 #include "../c6/rpc.h"
 #include "../c6/commands.h"
 
-static char *host;
+static char host[512];
 static short port;
 static int workers;
 static int substream;
+static int setup = 0;
 
 void db_setup(char *a_host, 
               short a_port,
               int a_workers,
               int a_substream) {
-  host = a_host;
+  strncpy(host, a_host, sizeof(host));
   port = a_port;
   workers = a_workers;
   substream = a_substream;
+  setup = 1;
   import_array();
 }
 
@@ -44,6 +46,7 @@ struct np_point {
 
 struct request {
   pthread_mutex_t lock;
+  struct sock_request *conn;
 
   // server conf
   const char *host;
@@ -51,19 +54,29 @@ struct request {
 
   // work queue
   int next_streamid;
-  unsigned long long *streamids;
   int n_streams;
 
   // request params
-  const int substream;
-  const unsigned long long starttime; 
-  const unsigned long long endtime;
+  const struct request_desc *r;
 
   struct np_point **return_data;
   int *return_data_len;
-  int limit;
   int errors;
 };
+
+int setup_request(struct sock_request *conn,
+                  const struct request_desc *req,
+                  unsigned long long streamid, 
+                  unsigned long long starttime) {
+  switch (req->type) {
+  case REQ_QUERY:
+    return db_query_all(conn, streamid, starttime, req->endtime, QUERY_DATA);
+  case REQ_ITER:
+    return db_iter(conn, streamid, starttime, req->direction, req->limit);
+  default:
+    return -1;
+  }
+}
 
 int read_numpy_resultset(struct sock_request *ipp, 
                          struct np_point **buf, int *off) {
@@ -109,6 +122,7 @@ int read_numpy_resultset(struct sock_request *ipp,
   }
   if (!*buf) {
     fprintf(stderr, "Alloc/realloc failed: request: %i\n", len);
+    response__free_unpacked(r, NULL);
     return -1;
   }
 
@@ -123,27 +137,37 @@ int read_numpy_resultset(struct sock_request *ipp,
 
 }
 
-void * worker_thread(struct request *req) {
+void *worker_thread(void *ptr) {
   struct sock_request *conn;
-  int id, idx, limit, rv = 0;
+  int id, idx, limit, rv = 0, conn_error = 0;
   unsigned long long starttime;
+  struct request *req = ptr;
 
   // don't need a lock, this might block
-  conn = db_open(req->host, req->port);
-  if (!conn) {
-    return NULL;
+  if (req->conn != NULL) {
+    conn = req->conn;
+  } else {
+    conn = __db_open(req->host, req->port, &conn_error);
+    if (!conn || conn_error) {
+      if (conn_error) {
+        fprintf("Encountered connection error: %s\n", strerror(conn_error));
+      }
+      req->errors++;
+      return NULL;
+    }
   }
+
   while (1) {
     pthread_mutex_lock(&req->lock);
     idx = req->next_streamid;
     if (idx < req->n_streams) {
-      id = req->streamids[req->next_streamid++];
+      id = req->r->streamids[req->next_streamid++];
     } else {
       id = 0;
     }
     pthread_mutex_unlock(&req->lock);
-    starttime = req->starttime;
-    limit = req->limit;
+    starttime = req->r->starttime;
+    limit = req->r->limit;
 
     // printf("starting load of %i (%i)\n", id, idx);
     if (id == 0) {
@@ -152,7 +176,7 @@ void * worker_thread(struct request *req) {
 
     // read all the range data from a single stream
     while (1) {
-      rv = db_query_all(conn, id, starttime, req->endtime, QUERY_DATA);
+      rv = setup_request(conn, req->r, id, starttime);
       if (rv < 0) {
         fprintf(stderr, "Error from DB: %s\n", strerror(-rv));
         req->errors++;
@@ -171,7 +195,9 @@ void * worker_thread(struct request *req) {
     }
   }
  done:
-  db_close(conn);
+  if (!req->conn) {
+    db_close(conn);
+  }
   return NULL;
 }
 
@@ -184,7 +210,7 @@ PyObject *make_numpy_list(struct request *req) {
   }
   for (i = 0; i < req->n_streams; i++) {
     npy_intp dims[2];
-    int length = min(req->limit, req->return_data_len[i]);
+    int length = min(req->r->limit, req->return_data_len[i]);
 
     if (req->return_data && length > 0) {
       dims[0] = length; dims[1] = 2;
@@ -213,34 +239,32 @@ PyObject *make_numpy_list(struct request *req) {
   return r;
 }
 
-PyObject *db_multiple(unsigned long long *streamids,
-                      unsigned long long starttime, 
-                      unsigned long long endtime,
-                      int limit) {
+PyObject *db_multiple(struct sock_request *ipp, const struct request_desc *r) {
     // set up a request;
   PyThreadState *_save;
   PyObject *rv;
   struct request req = {
+    .conn = ipp,
     .host = host,
     .port = port,
-    .substream = substream,
-    .starttime = starttime, 
-    .endtime = endtime,
-    .limit = limit,
+    .r = r,
     .errors = 0,
   };
   pthread_t threads[workers];
-  int n_streams, i, success = 1;
+  int n_streams, i;
+
+  if (!setup) {
+    PyErr_SetString(PyExc_IOError, 
+                    "ERROR: you must call db_setup before using the API\n");
+    return NULL;
+  }
 
   _save = PyEval_SaveThread();
-  for (n_streams = 0; streamids[n_streams] != 0; n_streams++);
-  // printf("loading %i streams limit %i\n", n_streams, limit);
-  if (req.limit < 0)
-    req.limit = 1e5;
+  for (n_streams = 0; req.r->streamids[n_streams] != 0; n_streams++);
+  // printf("loading %i streams limit %i\n", n_streams, r->limit);
 
   pthread_mutex_init(&req.lock, NULL);
   req.next_streamid = 0;
-  req.streamids = streamids;
   req.n_streams = n_streams;
   req.return_data = malloc(sizeof(PyObject *) * n_streams);
   if (!req.return_data) return NULL;
@@ -254,7 +278,8 @@ PyObject *db_multiple(unsigned long long *streamids,
   memset(req.return_data_len, 0, sizeof(int) * n_streams);
   for (i = 0; i < n_streams; i++) req.return_data[i] = NULL;
 
-  if (0) {
+  if (n_streams == 1 || ipp) {
+    // printf("not starting threads because connection is provided\n");
     worker_thread(&req);
   } else {
     int my_workers = min(n_streams, workers);
