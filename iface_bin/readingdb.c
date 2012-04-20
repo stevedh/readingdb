@@ -32,7 +32,6 @@ struct sock_request *__db_open(const char *host, const short port, int *rc) {
 
   if (!req) {
     *rc = ENOMEM;
-    printf("error 1\n");
     return NULL;
   }; 
 
@@ -40,7 +39,6 @@ struct sock_request *__db_open(const char *host, const short port, int *rc) {
   hints.ai_family = AF_INET;
   if (getaddrinfo(host, NULL, &hints, &res) != 0) {
     *rc = ENOENT;
-    printf("error 2\n");
     return NULL;
   }
 
@@ -51,7 +49,6 @@ struct sock_request *__db_open(const char *host, const short port, int *rc) {
   req->sock = socket(AF_INET, SOCK_STREAM, 0);
   if (req->sock < 0) {
     *rc = errno;
-    printf("error 3\n");
     goto cleanup;
   }
 
@@ -60,14 +57,11 @@ struct sock_request *__db_open(const char *host, const short port, int *rc) {
   if (setsockopt(req->sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
     *rc = errno;
     close(req->sock);
-    printf("error 4\n");
-
     goto cleanup;
   }
 
   if (connect(req->sock, (struct sockaddr *)&dest, sizeof(dest)) < 0) {
     *rc = errno;
-    printf("error 5: %i, %s\n", errno, strerror(errno));
     goto cleanup;
   }
 
@@ -75,7 +69,6 @@ struct sock_request *__db_open(const char *host, const short port, int *rc) {
   if (req->sock_fp == NULL) {
     *rc = errno;
     close(req->sock);
-    printf("error 6\n");
     goto cleanup;
   }
   req->substream = 0;
@@ -100,12 +93,6 @@ struct sock_request *db_open(const char *host, const short port) {
   }
 }
 
-
-void db_substream(struct sock_request *ipp, int substream) {
-  if (ipp)
-    ipp->substream = substream;
-}
-
 int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
   int i, len;
   ReadingSet *r;
@@ -116,6 +103,10 @@ int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
   if (!r) {
     PyErr_SetNone(PyExc_MemoryError);
     return -1;
+  }
+  if (!ipp) {
+    PyErr_SetString(PyExc_ValueError, "db_add: conn is NULL");
+    return NULL;
   }
 
   r->streamid = streamid;
@@ -225,7 +216,6 @@ int db_iter(struct sock_request *ipp, int streamid,
   int len;
 
   n.streamid = streamid;
-  n.substream = ipp->substream;
   n.reference = reference;
   n.direction = direction;
 
@@ -304,7 +294,6 @@ void db_del(struct sock_request *ipp,
   unsigned char buf[512];
   int len;
   d.streamid = streamid;
-  d.substream = ipp->substream;
   d.starttime = starttime;
   d.endtime = endtime;
 

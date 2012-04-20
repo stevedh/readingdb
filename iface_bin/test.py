@@ -2,10 +2,12 @@
 import sys
 import time
 import readingdb as rdb
+import _readingdb
 
 import numpy as np
 
 print "using readingdb", rdb.__file__
+print _readingdb.__file__
 
 end = 1304102690
 

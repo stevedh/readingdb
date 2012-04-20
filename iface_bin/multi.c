@@ -149,10 +149,7 @@ void *worker_thread(void *ptr) {
   } else {
     conn = __db_open(req->host, req->port, &conn_error);
     if (!conn || conn_error) {
-      if (conn_error) {
-        fprintf("Encountered connection error: %s\n", strerror(conn_error));
-      }
-      req->errors++;
+      req->errors = conn_error;
       return NULL;
     }
   }
@@ -179,13 +176,13 @@ void *worker_thread(void *ptr) {
       rv = setup_request(conn, req->r, id, starttime);
       if (rv < 0) {
         fprintf(stderr, "Error from DB: %s\n", strerror(-rv));
-        req->errors++;
+        req->errors = -rv;
         goto done;
       }
       rv = read_numpy_resultset(conn, &req->return_data[idx], &req->return_data_len[idx]);
       if (rv < 0) {
         fprintf(stderr, "Error reading results: %s\n", strerror(-rv));
-        req->errors++;
+        req->errors = -rv;
         goto done;
       } else if (rv < 10000 || limit - rv <= 0) {
         break;
@@ -279,7 +276,7 @@ PyObject *db_multiple(struct sock_request *ipp, const struct request_desc *r) {
   for (i = 0; i < n_streams; i++) req.return_data[i] = NULL;
 
   if (n_streams == 1 || ipp) {
-    // printf("not starting threads because connection is provided\n");
+    printf("not starting threads because connection is provided: %p\n", ipp);
     worker_thread(&req);
   } else {
     int my_workers = min(n_streams, workers);
@@ -307,7 +304,8 @@ PyObject *db_multiple(struct sock_request *ipp, const struct request_desc *r) {
     }
     free(req.return_data);
     free(req.return_data_len);
-    PyErr_Format(PyExc_Exception, "error reading data");
+    PyErr_Format(PyExc_Exception, "error reading data: last error: %s", 
+                 strerror(req.errors));
     return NULL;
   }
 }
