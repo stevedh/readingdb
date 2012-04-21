@@ -19,12 +19,55 @@ A simple python script for inserting data would be:
 --
 import readingdb as rdb
 
+# specify default host/port
+rdb.db_setup('localhost', 4242)
+
+# create a connection
 db = rdb.db_open('localhost')
+
+# add data.  the tuples are  (timestamp, seqno, value)
 rdb.db_add(db, 1, [(x, 0, x) for x in xrange(0, 100)])
-print rdb.db_query(db, 1, 0, 100)
+
+# read back the data we just wrote using the existing connection
+# the args are streamid, start_timestamp, end_timestamp
+print rdb.db_query(1, 0, 100, conn=db)
+# close
 rdb.db_close(db)
+
+# read back the data again using a connection pool this time.  You can
+# specify a list of streamids to range-query multiple streams at once.
+rdb.db_query([1], 0, 100) 
 --
 
 ReadingDB supports efficient range querying and interation using the
 db_query, db_prev, and db_next operations; you can delete data with
 db_del.
+
+As you can see, db_query can re-use an existing connection if desired.
+As of April 20, 2012, the result of querying the TSDB is returned as a
+list of numpy matrices.  This is because this is a very
+memory-efficient data structure, and creating numpy matrices using the
+c API is a lot more efficient than later doing it in python.  
+
+If no connection is specified for db_query/db_prev/db_next, new
+connections will be opened to the host/port specified with db_setup.
+The most efficient way of downloading data from a large number of
+streams is to specify a list of streamids, which allows the client
+library to conduct multiple parallel downloads of the data.  Using
+this approach we have observed readingdb easily saturating a 100Mb
+NIC.
+
+
+Dependencies
+------------
+
+For reading-server
+   libdb4.8, libdb4.8-dev (berkeley database)
+   libprotobuf, libprotobuf-dev (google protocol buffers)
+   libprotoc6, libprotoc6-dev (c bindings for protobufs)
+   zlib, zlib-dev (for compression)
+   gcc, make, automake
+
+For python bindings
+   python, python-dev, python-numpy (python deps)
+   swig (interface generator)
