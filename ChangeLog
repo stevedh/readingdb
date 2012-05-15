@@ -1,4 +1,11 @@
+2012-04-20 Stephen Dawson-Haggerty <stevedh@eecs.berkeley.edu>
+	* multi.c: add file with parallel downloader.
 
+	* readingdb.i: change/break client API.  db_setup() is now required to
+	set connection params; whole query api is db_prev/db_next/db_query.
+	Auto connects and returns lists of numpy matrices (creating them in
+	python was really slow).
+	
 2011-05-25 Stephen Dawson-Haggerty <stevedh@eecs.berkeley.edu>
 	* compress.c (val_compress, val_decompress): remove btree
 	compression routines and replace with these since we're moving

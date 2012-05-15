@@ -270,13 +270,12 @@ PyObject *db_multiple(struct sock_request *ipp, const struct request_desc *r) {
     free(req.return_data);
     PyEval_RestoreThread(_save);
     return PyErr_NoMemory();
-    return NULL;
   }
   memset(req.return_data_len, 0, sizeof(int) * n_streams);
   for (i = 0; i < n_streams; i++) req.return_data[i] = NULL;
 
   if (n_streams == 1 || ipp) {
-    printf("not starting threads because connection is provided: %p\n", ipp);
+    // printf("not starting threads because connection is provided: %p\n", ipp);
     worker_thread(&req);
   } else {
     int my_workers = min(n_streams, workers);

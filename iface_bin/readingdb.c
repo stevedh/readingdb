@@ -1,5 +1,6 @@
 
 #include <Python.h>
+#include <numpy/arrayobject.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <arpa/inet.h>
@@ -106,7 +107,7 @@ int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
   }
   if (!ipp) {
     PyErr_SetString(PyExc_ValueError, "db_add: conn is NULL");
-    return NULL;
+    return -1;
   }
 
   r->streamid = streamid;
@@ -276,13 +277,46 @@ PyObject *db_prev(unsigned long long *streamids,
                   unsigned long long reference, int n,
                   struct sock_request *ipp) {
   struct request_desc d;
+  PyObject *numpy, *flipud, *p, *rv;
+  int i;
   d.streamids = streamids;
   d.type = REQ_ITER;
   d.starttime = reference;
   d.direction = NEAREST__DIRECTION__PREV;
   d.limit = n > 0 ? n : 1;
-  return db_multiple(ipp, &d);
-  // return db_iter(ipp, streamid, reference, NEAREST__DIRECTION__PREV, n);
+
+  // load the data
+  rv = db_multiple(ipp, &d);
+
+  // use the numpy flipud to return a view on the data which has it in
+  // the right order (ascending timestamps).
+  numpy = PyImport_ImportModule("numpy");
+  if (!numpy) {
+    // ignore the import error
+    PyErr_Clear();
+    return rv;
+  }
+  flipud = PyObject_GetAttrString(numpy, "flipud");
+  if (!flipud) {
+    PyErr_Clear();
+    Py_DECREF(numpy);
+    return rv;
+  }
+
+  // try to flip all of the data vectors so they are ascending
+  if (!PyList_Check(rv)) goto done;
+  for (i = 0; i < PyList_Size(rv); i++) {
+    p = PyList_GetItem(rv, i);
+    PyList_SetItem(rv, i, PyObject_CallFunctionObjArgs(flipud, p, NULL));
+    // the way I think this works is we call flipud, which creates a
+    // "view" into the original array as a new object.  Since the
+    // reference to the original array disappears, we don't need to
+    // incref/decref it; we essentially donate our ref to the view.
+  }
+ done:
+  Py_DECREF(numpy);
+  Py_DECREF(flipud);
+  return rv;
 }
 
 void db_del(struct sock_request *ipp, 
