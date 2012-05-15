@@ -61,6 +61,8 @@ dnl # endif
 dnl ]), AC_MSG_RESULT([yes]), AC_MSG_ERROR([Wrong bdb version: >= 4.8.28 required]))
 
 # assume they have pthreads for now...
+AC_SEARCH_LIBS(pthread_create, [pthread], ,AC_MSG_ERROR([ERROR: can't find pthreds]))
+AC_SEARCH_LIBS(compress2, [z], , AC_MSG_ERROR([ERROR: can't find zlib]))
 
 # check for protoc-c compiler
 AC_PATH_PROG(PROTOC, protoc-c)
@@ -74,3 +76,4 @@ AC_SEARCH_LIBS(protobuf_c_message_pack, [protobuf-c], , AC_MSG_ERROR([ERROR: can
 AC_CONFIG_FILES([Makefile c6/Makefile c6/pbuf/Makefile iface_bin/Makefile])
 AC_CONFIG_SUBDIRS([c6/hashtable/])
 AC_OUTPUT
+
