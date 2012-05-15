@@ -2,14 +2,24 @@
 import sys
 import time
 import readingdb as rdb
+import _readingdb
+
+import numpy as np
 
 print "using readingdb", rdb.__file__
+print _readingdb.__file__
 
 end = 1304102690
 
+rdb.db_setup('localhost', 4242)
 db = rdb.db_open(host='localhost', port=4242)
 # db = rdb.db_open()
-rdb.db_substream(db, 0)
+
+def next(id, ref, n=1): 
+    return rdb.db_next(id, ref, n=n, conn=db)[0].tolist()
+
+def prev(id, ref, n=1, conn=db): 
+    return rdb.db_prev(id, ref, n=n, conn=db)[0].tolist()
 
 S1MAX = 1000 * 100
 if len(sys.argv) == 1:
@@ -25,14 +35,18 @@ elif sys.argv[1] == '-a':
         rdb.db_add(db, 2, [(i * 3600, 0, i * 3600)])
 elif sys.argv[1] == '-r':
     # test that we read back what we wrote
-    d = rdb.db_query(db, 1, 0, 10000)
-    print len(d)
+    d = rdb.db_query(1, 0, 10000)
+    assert len(d) == 1
+    d = d[0].tolist()
     assert len(d) == 10000
+    
     for i in xrange(0, 10000):
         assert d[i][0] == i
         assert d[i][1] == i
 
-    d = rdb.db_query(db, 2, 0, 3600 * 10000)
+    d = rdb.db_query(2, 0, 3600 * 10000)
+    assert len(d) == 1
+    d = d[0].tolist()
     print d[0:10]
     for i in xrange(0, 10000):
         assert d[i][0] == i * 3600
@@ -43,28 +57,30 @@ elif sys.argv[1] == '-d':
 elif sys.argv[1] == '-n':
     # test that db_next and db_prev iterate correctly through the data
     for i in xrange(0, 10000):
-        d = rdb.db_next(db, 1, i)
+        d = next(1, i)
         assert d[0][0] == i+1
-        d = rdb.db_prev(db, 1, i)
+        # print i
+        d = prev(1, i)
         if i == 0:
             assert len(d) == 0
         else:
             assert d[0][0] == i - 1
         if not i % 100:
             print '.',
+    # print "done with test 1"
     for i in xrange(1, 100000):
-        d = rdb.db_next(db, 2, i)
+        d = next(2, i)
         assert d[0][0] == (i + 3600 - (i % 3600))
-        d = rdb.db_prev(db, 2, i)
-        prev =  i - 3600 + (3600 - (i % 3600))
-        if i % 3600 == 0: prev -= 3600
-        assert d[0][0] == prev
+        d = prev(2, i)
+        p =  i - 3600 + (3600 - (i % 3600))
+        if i % 3600 == 0: p -= 3600
+        assert d[0][0] == p
         if not i % 1000:
             print '.', 
 elif sys.argv[1] == '-s':
     for i in xrange(1, 2000):
         s = time.time()
-        x = rdb.db_prev(db, i, int(time.time()), n=10)
+        x = prev(i, int(time.time()), n=10)
         print len(x), (time.time() - s)
 elif sys.argv[1] == '-l':
     for f in sys.argv[2:]:
@@ -80,9 +96,15 @@ elif sys.argv[1] == '-l':
                 if len(add_vec) == 100:
                     rdb.db_add(db, streamid, add_vec)
                     add_vec = []
-elif sys.argv[1] == '-c':
-    assert rdb.db_count(db, 1, 0, 0xffffffff)[0][2] == 100000
-    assert rdb.db_count(db, 2, 0, 0xffffffff)[0][2] == 10000
+elif sys.argv[1] == '-m':
+    d = rdb.db_query([1, 2], 0, 100000000000, limit=-1)
+    d1, d2 = d
+    assert np.shape(d1) == (1e5, 2)
+    assert np.shape(d2) == (1e4, 2)
+    assert np.sum(d1[:, 0] - np.arange(0, 1e5)) == 0
+    assert np.sum(d1[:, 1] - np.arange(0, 1e5)) == 0
+    assert np.sum(d2[:, 0] - np.arange(0, 3600 * 1e4, 3600)) == 0
+    assert np.sum(d2[:, 1] - np.arange(0, 3600 * 1e4, 3600)) == 0
 else:
     print "invalid argument"
 

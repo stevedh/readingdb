@@ -16,24 +16,29 @@
 #include "../c6/readingdb.h"
 #include "../c6/rpc.h"
 #include "../c6/commands.h"
-// #include "../c/pbuf/rdb.pb-c.h"
 
 #define TIMEOUT_SECS 10
 #define SIGREPLACE SIGTERM
 
-struct sock_request *db_open(const char *host, const short port) {
+
+// version of db_open which can be called without holding the GIL
+struct sock_request *__db_open(const char *host, const short port, int *rc) {
   struct sock_request *req = malloc(sizeof(struct sock_request));
   struct addrinfo *res, hints;
   struct sockaddr_in dest;
   struct timeval timeout;
 
-  if (!req) 
-    return (struct sock_request *)PyErr_NoMemory();
+  *rc = 0;
+
+  if (!req) {
+    *rc = ENOMEM;
+    return NULL;
+  }; 
 
   memset(&hints, 0, sizeof(hints));
   hints.ai_family = AF_INET;
   if (getaddrinfo(host, NULL, &hints, &res) != 0) {
-    PyErr_Format(PyExc_IOError, "could not resolve host: %s", host);
+    *rc = ENOENT;
     return NULL;
   }
 
@@ -43,41 +48,49 @@ struct sock_request *db_open(const char *host, const short port) {
 
   req->sock = socket(AF_INET, SOCK_STREAM, 0);
   if (req->sock < 0) {
-    PyErr_Format(PyExc_IOError, "socket: %s", strerror(errno));
+    *rc = errno;
     goto cleanup;
   }
 
   timeout.tv_sec = 30;
   timeout.tv_usec = 0;
   if (setsockopt(req->sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-    PyErr_Format(PyExc_IOError, "setsockopt: %s", strerror(errno));
+    *rc = errno;
+    close(req->sock);
     goto cleanup;
   }
 
   if (connect(req->sock, (struct sockaddr *)&dest, sizeof(dest)) < 0) {
-    PyErr_Format(PyExc_IOError, "connect: %s", strerror(errno));
+    *rc = errno;
     goto cleanup;
   }
 
   req->sock_fp = fdopen(req->sock, "r+");
   if (req->sock_fp == NULL) {
-    PyErr_Format(PyExc_IOError, "fdopen: %s", strerror(errno));
+    *rc = errno;
     close(req->sock);
     goto cleanup;
   }
-  
   req->substream = 0;
   return req;
  cleanup:
   free(req);
-  if (!PyErr_Occurred())
-    PyErr_SetString(PyExc_IOError, "Generic error");
   return NULL;
 }
 
-void db_substream(struct sock_request *ipp, int substream) {
-  if (ipp)
-    ipp->substream = substream;
+// friendly db_open which raises python exceptions
+struct sock_request *db_open(const char *host, const short port) {
+  int rc;
+  void *rv;
+  rv = __db_open(host, port, &rc);
+  if (rc == 0) {
+    return rv;
+  } else if (rc == ENOMEM) {
+    return (struct sock_request *)PyErr_NoMemory();
+  } else {
+    PyErr_Format(PyExc_IOError, "db_open: %s", strerror(rc));
+    return NULL;
+  }
 }
 
 int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
@@ -90,6 +103,10 @@ int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
   if (!r) {
     PyErr_SetNone(PyExc_MemoryError);
     return -1;
+  }
+  if (!ipp) {
+    PyErr_SetString(PyExc_ValueError, "db_add: conn is NULL");
+    return NULL;
   }
 
   r->streamid = streamid;
@@ -157,65 +174,6 @@ int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
   return 1;
 }
 
-PyObject * read_resultset(struct sock_request *ipp) {
-  PyObject *ret, *record;
-  Response *r;
-  struct pbuf_header h;
-  void *reply;
-  int len, i;
-
-  /* read the reply */
-  if (fread(&h, sizeof(h), 1, ipp->sock_fp) <= 0) {
-    PyErr_Format(PyExc_IOError, "read_resultset: error reading from socket: %s", strerror(errno));
-    return NULL;
-  }
-  len = ntohl(h.body_length);
-  reply = malloc(len);
-  if (!reply) return NULL;;
-  if (fread(reply, len, 1, ipp->sock_fp) <= 0) {
-    free(reply);
-    PyErr_Format(PyExc_IOError, "read_resultset: error reading from socket: %s", strerror(errno));
-    return NULL;
-  }
-  r = response__unpack(NULL, len, reply);
-  free(reply);
-  if (!r) {
-    PyErr_Format(PyExc_IOError, "read_resultset: error unpacking");
-    return NULL;
-  }
-/*   printf("Received reply code: %i results: %li len: %i\n", */
-/*          r->error, r->data->n_data, len); */
-  if (r->error != RESPONSE__ERROR_CODE__OK) {
-    PyErr_Format(PyExc_Exception, "read_resultset: received error from server: %i", r->error);
-    return NULL;
-  }
-
-  /* build the python data structure  */
-  ret = PyList_New(r->data->n_data);
-  if (ret == NULL) {
-    response__free_unpacked(r, NULL);
-    /* PyList_New sets exception */
-    return NULL;
-  }
-
-  for (i = 0; i < r->data->n_data; i++) {
-    if (r->data->data[i]->has_min && r->data->data[i]->has_max) {
-      record = Py_BuildValue("llddd", r->data->data[i]->timestamp,
-                             r->data->data[i]->has_seqno ? r->data->data[i]->seqno : 0,                               
-                             r->data->data[i]->value,
-                             r->data->data[i]->min,
-                             r->data->data[i]->max);
-    } else {
-      record = Py_BuildValue("lld", r->data->data[i]->timestamp,
-                             r->data->data[i]->has_seqno ? r->data->data[i]->seqno : 0,                               
-                             r->data->data[i]->value);
-    }
-    PyList_SetItem(ret, i, record);
-  }
-  response__free_unpacked(r, NULL);
-  return ret;
-}
-
 int db_query_all(struct sock_request *ipp, unsigned long long streamid, 
                        unsigned long long starttime, 
                        unsigned long long endtime,
@@ -250,41 +208,14 @@ int db_query_all(struct sock_request *ipp, unsigned long long streamid,
   return -errno;
 }
 
-PyObject *db_query(struct sock_request *ipp, unsigned long long streamid, 
-                   unsigned long long starttime, 
-                   unsigned long long endtime) {
-  int rv;
-  rv = db_query_all(ipp, streamid, starttime, endtime, QUERY_DATA);
-  if (rv != 0) {
-    PyErr_Format(PyExc_IOError, "db_query: error writing: %s", strerror(errno));
-    return NULL;
-  } else {
-    return read_resultset(ipp);
-  }
-}
-
-PyObject *db_count(struct sock_request *ipp, unsigned long long streamid, 
-                   unsigned long long starttime, 
-                   unsigned long long endtime) {
-  int rv;
-  rv = db_query_all(ipp, streamid, starttime, endtime, QUERY_COUNT);
-  if (rv != 0) {
-    PyErr_Format(PyExc_IOError, "db_query: error writing: %s", strerror(errno));
-    return NULL;
-  } else {
-    return read_resultset(ipp);
-  }
-}
-
-PyObject *db_iter(struct sock_request *ipp, int streamid, 
-                  unsigned long long reference, int direction, int ret_n) {
+int db_iter(struct sock_request *ipp, int streamid, 
+            unsigned long long reference, int direction, int ret_n) {
   struct pbuf_header h;
   Nearest n = NEAREST__INIT;
   unsigned char buf[512];
   int len;
 
   n.streamid = streamid;
-  n.substream = ipp->substream;
   n.reference = reference;
   n.direction = direction;
 
@@ -294,8 +225,7 @@ PyObject *db_iter(struct sock_request *ipp, int streamid,
   }
 
   if ((len = nearest__get_packed_size(&n)) > sizeof(buf)) {
-    PyErr_SetString(PyExc_IOError, "db_next: generic error");
-    return NULL;
+    return -ENOMEM;
   }
 
   h.message_type = htonl(MESSAGE_TYPE__NEAREST);
@@ -308,21 +238,51 @@ PyObject *db_iter(struct sock_request *ipp, int streamid,
     goto write_error;
   fflush(ipp->sock_fp);
 
-  return read_resultset(ipp);
+  return 0;
 
  write_error:
-  PyErr_Format(PyExc_IOError, "db_iter: error writing: %s", strerror(errno));
-  return NULL;
+  return -errno;
 }
 
-PyObject *db_next(struct sock_request *ipp, int streamid, 
-                  unsigned long long reference, int n) {
-  return db_iter(ipp, streamid, reference, NEAREST__DIRECTION__NEXT, n);
+
+PyObject *db_query(unsigned long long *streamids, 
+                   unsigned long long starttime, 
+                   unsigned long long endtime,
+                   int limit,
+                   struct sock_request *ipp) {
+  struct request_desc d;
+  d.streamids = streamids;
+  d.type = REQ_QUERY;
+  d.starttime = starttime;
+  d.endtime = endtime;
+  d.limit = limit > 0 ? limit : 1e6;
+  return db_multiple(ipp, &d);
 }
 
-PyObject *db_prev(struct sock_request *ipp, int streamid, 
-                  unsigned long long reference, int n) {
-  return db_iter(ipp, streamid, reference, NEAREST__DIRECTION__PREV, n);
+PyObject *db_next(unsigned long long *streamids,
+                  unsigned long long reference, int n,
+                  struct sock_request *ipp) {
+  struct request_desc d;
+  d.streamids = streamids;
+  d.type = REQ_ITER;
+  d.starttime = reference;
+  d.direction = NEAREST__DIRECTION__NEXT;
+  d.limit = n > 0 ? n : 1;
+  return db_multiple(ipp, &d);
+  // return db_iter(ipp, streamid, reference, NEAREST__DIRECTION__NEXT, n);
+}
+
+PyObject *db_prev(unsigned long long *streamids,
+                  unsigned long long reference, int n,
+                  struct sock_request *ipp) {
+  struct request_desc d;
+  d.streamids = streamids;
+  d.type = REQ_ITER;
+  d.starttime = reference;
+  d.direction = NEAREST__DIRECTION__PREV;
+  d.limit = n > 0 ? n : 1;
+  return db_multiple(ipp, &d);
+  // return db_iter(ipp, streamid, reference, NEAREST__DIRECTION__PREV, n);
 }
 
 void db_del(struct sock_request *ipp, 
@@ -334,7 +294,6 @@ void db_del(struct sock_request *ipp,
   unsigned char buf[512];
   int len;
   d.streamid = streamid;
-  d.substream = ipp->substream;
   d.starttime = starttime;
   d.endtime = endtime;
 
