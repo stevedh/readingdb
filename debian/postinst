@@ -1,0 +1,16 @@
+#!/bin/sh
+# postinst script for readingdb
+#
+# set -e
+
+case "$1" in
+    configure)
+        adduser --system www-data 2>/dev/null
+
+        chown www-data:www-data /var/lib/readingdb
+        ;;
+esac
+
+#DEBHELPER#
+#echo "---- ending postinst $@"
+exit 0

@@ -17,9 +17,9 @@
 
 #include "readingdb_py.h"
 
-#include "../c6/readingdb.h"
-#include "../c6/rpc.h"
-#include "../c6/commands.h"
+#include "c6/readingdb.h"
+#include "c6/rpc.h"
+#include "c6/commands.h"
 
 static char host[512];
 static short port;
