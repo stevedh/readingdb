@@ -24,6 +24,7 @@
 #include <errno.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 #include <sys/time.h>
 #include <stdarg.h>
 #include "logging.h"
@@ -71,7 +72,11 @@ loglevel_t log_getlevel() {
 
 void log_init() {
   log_level = LOGLVL_DEBUG;
-  log_dest = stderr;
+  if (isatty(fileno(stderr))) {
+    log_dest = stderr;
+  } else {
+    log_dest = NULL;
+  }
   log_end = log_size = 0;
 }
 
@@ -93,7 +98,9 @@ void log_log  (loglevel_t level, const char *fmt, ...) {
   buf_used += snprintf(buf + buf_used, 1024 - buf_used, "%s: ", log_names[level]);
   buf_used += vsnprintf(buf + buf_used, 1024 - buf_used, fmt, ap);
 
-  fputs(buf, log_dest);
+  if (log_dest) {
+    fputs(buf, log_dest);
+  }
   log_addentry(buf);
 
   va_end(ap);
@@ -103,6 +110,7 @@ void log_fatal_perror(const char *msg) {
   char buf[1024];
   int in_errno = errno;
   if (in_errno < 0) return;
+  if (!log_dest) return;
   timestamp(buf, 1024);
   fputs(buf, log_dest);
 
@@ -114,7 +122,8 @@ void log_fatal_perror(const char *msg) {
 void log_clear (loglevel_t level, const char *fmt, ...) {
   char buf[1024];
   if (log_level > level) return;
-  va_list ap;
+  if (!log_dest) return;
+  va_list ap; 
   va_start(ap, fmt);
   vsnprintf(buf, 1024, fmt, ap);
   fputs(buf, log_dest);

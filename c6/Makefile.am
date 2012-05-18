@@ -14,3 +14,8 @@ noinst_HEADERS = config.h  logging.h  readingdb.h  readingdb_py.h  \
 # noinst_PROGRAMS = compress
 # compress_SOURCES = compress.c pbuf/rdb.pb-c.c rpc.c util.c logging.c
 # compress_LDFLAGS = -lprotobuf-c -lz
+
+install-data-local:
+	mkdir -p $(DESTDIR)/$(localstatedir)/lib/readingdb
+	mkdir -p $(DESTDIR)/$(sysconfdir)/monit/conf.d
+	sh mkmonit.sh $(localstatedir) $(bindir) > $(DESTDIR)/$(sysconfdir)/monit/conf.d/readingdb

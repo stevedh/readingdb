@@ -1,0 +1,18 @@
+Source: readingdb
+Section: database
+Priority: optional
+Maintainer: Stephen Dawson-Haggerty <stevedh@eecs.berkeley.edu>
+Standards-Version: 3.8.4
+Build-Depends: debhelper (>= 7.0.50~), dh-autoreconf, zlib1g-dev, libdb4.8, 
+ libdb4.8-dev, cdbs (>= 0.4.49),
+ protobuf-c-compiler, libprotobuf-c0-dev, libprotobuf-c0, check
+
+Package: readingdb
+Architecture: any
+Section: database
+Priority: optional
+Depends: zlib1g, libdb4.8, libprotobuf-c0
+Suggests: monit
+Homepage: https://github.com/stevedh/readingdb
+Description: readingdb is a time-series database designed for 
+ efficiency and speed.
