@@ -1,0 +1,5 @@
+readingdb-python (0.6.0-2) oneiric; urgency=low
+
+  * Initial release.
+
+ -- readingdb-python <stevedh@eecs.berkeley.edu>  Sun, 20 May 2012 15:12:38 -0700

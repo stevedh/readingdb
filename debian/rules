@@ -19,4 +19,4 @@ export DH_OPTIONS
 # include /usr/share/cdbs/1/rules/debhelper.mk
 
 %:
-        dh $@ --with autoreconf
+	dh $@ --with autoreconf

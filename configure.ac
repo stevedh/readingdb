@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.61)
-AC_INIT(readingdb, 6.2, stevedh@eecs.berkeley.edu)
+AC_INIT(readingdb, 0.6.0, stevedh@eecs.berkeley.edu)
 AC_CONFIG_HEADER([c6/config.h])
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -24,6 +24,25 @@ AS_IF([test "x$enable_compression" != "xno"], AC_DEFINE([USE_COMPRESSION], [], [
 AC_ARG_ENABLE([compression-log],
         AS_HELP_STRING([--enable-compression-log], [Write a log for each write of compression statistics]))
 AS_IF([test "x$enable_compression_log" = "xyes"], AC_DEFINE([WRITE_COMPRESSION_LOG], [], [Write compression log]))
+
+dnl user to run as
+AC_MSG_CHECKING(user to run as)
+AC_ARG_WITH([username],
+        [AC_HELP_STRING([--with-username], [User to run readingdb database as (readingdb)])],
+        READINGDB_USER=$withval,
+        READINGDB_USER=readingdb)
+AC_MSG_RESULT($READINGDB_USER)
+AC_DEFINE_UNQUOTED([READINGDB_USER], ["$READINGDB_USER"], [User to run as])
+
+dnl find datadir
+AC_MSG_CHECKING(default data directory)
+AC_ARG_WITH([datadir],
+        [AC_HELP_STRING([--with-datadir], [Default data directory (/var/lib/readingdb)])],
+        DATA_DIR=$withval,
+        DATA_DIR=/var/lib/readingdb)
+AC_MSG_RESULT($DATA_DIR)
+AC_DEFINE_UNQUOTED([DATA_DIR], ["$DATA_DIR"], [Default data directory])
+
 
 # Checks for header files.
 AC_HEADER_STDC

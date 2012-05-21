@@ -28,6 +28,7 @@
 #include "rpc.h"
 #include "pbuf/rdb.pb-c.h"
 #include "commands.h"
+#include "config.h"
 
 struct config {
   long commit_interval;          /* seconds */

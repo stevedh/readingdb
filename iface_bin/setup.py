@@ -18,3 +18,19 @@ setup (name='readingdb-python',
        ext_modules=[readingdb_module],
        include_dirs = [np.get_include()],
        py_modules=('readingdb',))
+
+ # MANIFEST.in
+ # Makefile
+ # Makefile.am
+ # autotest.py
+ # c6/pbuf/Makefile
+ # c6/pbuf/Makefile.am
+ # c6/pbuf/Makefile.in
+ # c6/pbuf/rdb.proto
+ # dataloader.py
+ # fetch.py
+ # import.py
+ # import_tsdb.py
+ # readingdb.i
+ # test.py
+ # test_multi.py

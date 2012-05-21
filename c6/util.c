@@ -19,6 +19,7 @@
 
 #include "readingdb.h"
 #include "logging.h"
+#include "config.h"
 
 #if 0
 IPC *ipc_open(int semflags, int memflags) {
@@ -94,7 +95,7 @@ void ipc_close(IPC *ipp) {
 #endif
 
 void drop_priv(void) {
-  const char *user = "www-data";
+  const char *user = READINGDB_USER;
   struct passwd *user_pwd = getpwnam(user);
   info("trying to drop privileges to '%s'\n", user);
   if (user_pwd != NULL) {

@@ -5,19 +5,29 @@ LDFLAGS+=
 EXTRA_DIST=setup.py readingdb.i readingdb_py.h readingdb.c
 SWIG_OUTPUTS = readingdb_wrap.c readingdb.py
 
+PROJECT=readingdb-python
+VERSION=0.6.0
+
 all-local: module
 
 install-exec-local: module
 	python setup.py install --prefix $(prefix)
 
-module: readingdb.i $(SWIG_OUTPUTS) ../c6/pbuf/rdb.pb-c.c
+prep: readingdb.i $(SWIG_OUTPUTS) ../c6/pbuf/rdb.pb-c.c
 	mkdir -p c6	
 	cp -r ../c6/pbuf/ c6
 	cp ../c6/readingdb.h ../c6/rpc.c ../c6/rpc.h ../c6/commands.h c6
+
+module: prep
 	python setup.py build_ext --inplace
 
 dist: module
 	python setup.py sdist --formats gztar 
+
+builddeb: prep
+	python setup.py sdist $(COMPILE) --dist-dir=../ --prune
+	rename -f 's/$(PROJECT)-(.*)\.tar\.gz/$(PROJECT)_$$1\.orig\.tar\.gz/' ../*
+	dpkg-buildpackage -i -I -rfakeroot -uc -us -S
 
 $(SWIG_OUTPUTS): readingdb.i ../c6/readingdb.h readingdb_py.h
 	swig -python -keyword -Wall readingdb.i
