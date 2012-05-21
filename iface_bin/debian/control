@@ -4,7 +4,8 @@ Priority: optional
 Maintainer: Stephen Dawson-Haggerty <stevedh@eecs.berkeley.edu>
 Build-Depends: debhelper (>= 7.0.50~), dh-autoreconf, cdbs (>= 0.4.49),
   python-all-dev, python-support (>= 0.6), python-numpy-dev,
-  python-numpy, libprotobuf-c0-dev, libprotobuf-c0
+  python-numpy, libprotobuf-c0-dev, libprotobuf-c0,
+  libdb4.8-dev
 XS-Python-Version: >= 2.6
 Standards-Version: 3.8.4
 
