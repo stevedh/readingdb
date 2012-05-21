@@ -92,7 +92,7 @@ fi
 AC_CHECK_HEADERS(google/protobuf-c/protobuf-c.h)
 AC_SEARCH_LIBS(protobuf_c_message_pack, [protobuf-c], , AC_MSG_ERROR([ERROR: can't link against protobuf-c library]))
 
-AC_CONFIG_FILES([Makefile c6/Makefile c6/pbuf/Makefile iface_bin/Makefile])
+AC_CONFIG_FILES([Makefile c6/Makefile c6/pbuf/Makefile])
 AC_CONFIG_SUBDIRS([c6/hashtable/])
 AC_OUTPUT
 

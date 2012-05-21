@@ -70,4 +70,5 @@ For reading-server
 
 For python bindings
    python, python-dev, python-numpy (python deps)
+   libdb4.8-dev
    swig (interface generator)
