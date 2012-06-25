@@ -14,8 +14,8 @@ install: module
 	python setup.py install
 
 prep: readingdb.i $(SWIG_OUTPUTS) ../c6/pbuf/rdb.pb-c.c
-	mkdir -p c6	
-	cp -r ../c6/pbuf/ c6
+	mkdir -p c6/pbuf
+	cp -r ../c6/pbuf/ c6/pbuf
 	cp ../c6/readingdb.h ../c6/rpc.c ../c6/rpc.h ../c6/commands.h c6
 
 module: prep
