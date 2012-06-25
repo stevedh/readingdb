@@ -1,7 +1,9 @@
 
+import re
 import time
 import sys
 from optparse import OptionParser
+import numpy as np
 
 import readingdb as rdb4
 
@@ -38,6 +40,8 @@ if __name__ == '__main__':
                       help='how long to wait between each query-insert (default=0.1s)')
     parser.add_option('-n', '--no-action', dest='noop', default=False, action='store_true',
                       help='don\'t actually insert the data')
+    parser.add_option('-f', '--map-file', dest='mapfile', default=False,
+                      help='import using a map file')
     opts, hosts = parser.parse_args()
     if len(hosts) != 2:
         parser.print_help()
@@ -49,11 +53,11 @@ if __name__ == '__main__':
     print "Importing data from %s:%i to %s:%i" % (old_db + new_db)
     print "substream: %i" % int(opts.substream)
     
-    db0 = rdb4.db_open(host=old_db[0], port=old_db[1])
+    rdb4.db_setup(old_db[0], old_db[1])
     db1 = rdb4.db_open(host=new_db[0], port=new_db[1])
 
-    rdb4.db_substream(db0, int(opts.substream))
-    rdb4.db_substream(db1, int(opts.substream))
+    # rdb4.db_substream(db0, int(opts.substream))
+    # rdb4.db_substream(db1, int(opts.substream))
 
     if not opts.zero:
         IMPORT_START = int(time.time()) - (int(opts.ago) * 3600)
@@ -63,32 +67,50 @@ if __name__ == '__main__':
         IMPORT_STOP = int(time.time()) - (int(opts.ago) * 3600)
     print "Importing from %i to %i" % (IMPORT_START, IMPORT_STOP)
 
-    start = int(opts.startid)
-    for stream in xrange(start, int(opts.maxid)):
-        print "starting", stream
+    if not opts.mapfile:
+        start = int(opts.startid)
+        import_map = [(x, x) for x in xrange(start, int(opts.maxid))]
+    else:
+        import_map = []
+        with open(opts.mapfile, "r") as fp:
+            for line in fp.readlines():
+                line = re.sub('\#.*$', '', line)
+                ids = re.split('[ \t]+', line)
+                for id in ids[1:]:
+                    import_map.append((int(ids[0]), int(id)))
+        
+    for to_stream, from_stream in import_map:
+        print "starting %i <- %i" % (to_stream, from_stream) 
         first = True
         vec = [(IMPORT_START,)]
         while first or len(vec) == 10000:
             t = tic()
-            vec = rdb4.db_query(db0, stream, vec[-1][0] - 1, IMPORT_STOP)
+            print from_stream, vec[-1][0]
+            vec = rdb4.db_query([from_stream], int(vec[-1][0] - 1), int(IMPORT_STOP))[0]
 
             if not first:
-                data += vec
+                data = np.vstack((data, vec))
+                print data.shape
             else:
                 data = vec
                 
             first = False
+            break
             print "received", len(vec),
             toc(t)
 
         print "total: ", len(data)
         t = tic()
         if opts.noop: continue
-        for i in xrange(0, (len(data) / 100) + 1):
-            rdb4.db_add(db1, stream, data[(i*100):(i*100) + 100])
-        print "inserted", stream,
+        bound = (int(data.shape[0]) / 100) + 1
+        for i in xrange(0, bound):
+            vec = (data[(i*100):(i*100) + 100, :]).tolist()
+            # print time.ctime(vec[0][0])
+            rdb4.db_add(db1, to_stream, map(tuple, vec))
+            if len(vec) < 100: break
+        print "inserted", to_stream
         toc(t)
         time.sleep(float(opts.delay))
         # rdb4.db_sync(db4)
-    rdb4.db_close(db0)
+    #rdb4.db_close(db0)
     rdb4.db_close(db1)
