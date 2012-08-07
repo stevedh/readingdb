@@ -49,11 +49,12 @@ if __name__ == '__main__':
     print "Importing data from %s:%i to %s:%i" % (old_db + new_db)
     print "substream: %i" % int(opts.substream)
     
-    db0 = rdb4.db_open(host=old_db[0], port=old_db[1])
+    # db0 = rdb4.db_open(host=old_db[0], port=old_db[1])
+    rdb4.db_setup(old_db[0], old_db[1])
     db1 = rdb4.db_open(host=new_db[0], port=new_db[1])
 
-    rdb4.db_substream(db0, int(opts.substream))
-    rdb4.db_substream(db1, int(opts.substream))
+    #rdb4.db_substream(db0, int(opts.substream))
+    #rdb4.db_substream(db1, int(opts.substream))
 
     if not opts.zero:
         IMPORT_START = int(time.time()) - (int(opts.ago) * 3600)
@@ -68,27 +69,22 @@ if __name__ == '__main__':
         print "starting", stream
         first = True
         vec = [(IMPORT_START,)]
-        while first or len(vec) == 10000:
-            t = tic()
-            vec = rdb4.db_query(db0, stream, vec[-1][0] - 1, IMPORT_STOP)
+        t = tic()
+        vec = rdb4.db_query(stream, vec[-1][0] - 1, IMPORT_STOP)
+        if not len(vec): continue
+        data = vec[0].tolist()
+        print "received", len(data),
+        toc(t)
+        print data[:10]
 
-            if not first:
-                data += vec
-            else:
-                data = vec
-                
-            first = False
-            print "received", len(vec),
-            toc(t)
-
-        print "total: ", len(data)
         t = tic()
         if opts.noop: continue
         for i in xrange(0, (len(data) / 100) + 1):
+            print db1, stream, data[(i*100):(i*100) + 100]
             rdb4.db_add(db1, stream, data[(i*100):(i*100) + 100])
         print "inserted", stream,
         toc(t)
         time.sleep(float(opts.delay))
         # rdb4.db_sync(db4)
-    rdb4.db_close(db0)
+        # rdb4.db_close(db0)
     rdb4.db_close(db1)
