@@ -83,7 +83,7 @@ int read_numpy_resultset(struct sock_request *ipp,
   Response *r;
   struct pbuf_header h;
   void *reply;
-  int len, i;
+  int len, i, rv;
 
   /* read the reply */
   if (fread(&h, sizeof(h), 1, ipp->sock_fp) <= 0) {
@@ -131,10 +131,10 @@ int read_numpy_resultset(struct sock_request *ipp,
     ((struct np_point *)(*buf))[i].val = r->data->data[i - *off]->value;
   }
   *off += r->data->n_data;
+  rv = r->data->n_data;
   response__free_unpacked(r, NULL);
   
-  return r->data->n_data;
-
+  return rv;
 }
 
 void *worker_thread(void *ptr) {
