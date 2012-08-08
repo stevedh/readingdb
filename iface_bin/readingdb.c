@@ -103,11 +103,11 @@ int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
   r = _rpc_alloc_rs(SMALL_POINTS);
   if (!r) {
     PyErr_SetNone(PyExc_MemoryError);
-    return -1;
+    return 0;
   }
   if (!ipp) {
     PyErr_SetString(PyExc_ValueError, "db_add: conn is NULL");
-    return -1;
+    return 0;
   }
 
   r->streamid = streamid;
@@ -115,12 +115,12 @@ int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
 
   if (!PyList_Check(values)) {
     _rpc_free_rs(r);
-    return -1;
+    return 0;
   }
 
   if (PyList_Size(values) > SMALL_POINTS) {
     _rpc_free_rs(r);
-    return -1;
+    return 0;
   }
 
   for (i = 0; i < PyList_Size(values); i++) {
@@ -142,6 +142,17 @@ int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
                            &r->data[i]->seqno,
                            &r->data[i]->value) < 0)
         break;
+    } else if (PyTuple_Size(tuple) == 2) {
+      if (PyArg_ParseTuple(tuple, "ld",
+                           &r->data[i]->timestamp,
+                           &r->data[i]->value) < 0)
+        break;
+      r->data[i]->seqno = 0;
+    } else {
+      _rpc_free_rs(r);
+      PyErr_Format(PyExc_ValueError, 
+                   "Invalid data passed: must be a list of tuples");
+      return 0;
     }
     if (r->data[i]->seqno != 0)
       r->data[i]->has_seqno = 1;
@@ -153,7 +164,7 @@ int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
   if (!buf) {
     _rpc_free_rs(r);
     PyErr_SetNone(PyExc_MemoryError);
-    return -1;
+    return 0;
   }
   reading_set__pack(r, buf);
   _rpc_free_rs(r);
@@ -164,12 +175,12 @@ int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
   if (fwrite(&h, sizeof(h), 1, ipp->sock_fp) <= 0) {
     free(buf);
     PyErr_Format(PyExc_IOError, "error writing to socket: %s", strerror(errno));
-    return -1;
+    return 0;
   }
   if (fwrite(buf, len, 1, ipp->sock_fp) <= 0) {
     free(buf);
     PyErr_Format(PyExc_IOError, "error writing to socket: %s", strerror(errno));
-    return -1;
+    return 0;
   }
   free(buf);
   return 1;
