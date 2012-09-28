@@ -143,7 +143,7 @@ int get(DBC *cursorp, int flags, struct rec_key *k, struct rec_val *v, int len) 
   }
   if (ret != DB_NOTFOUND)
     warn("Get failed: %s\n", db_strerror(ret));
-  return -1;
+  return ret;
 }
 
 int get_partial(DBC *cursorp, int flags, struct rec_key *k, 

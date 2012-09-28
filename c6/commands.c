@@ -114,7 +114,7 @@ void query_nearest(DB *dbp, Nearest *n, Response *rs, enum query_action action) 
   struct rec_key k;
   struct rec_val v;
   unsigned long long starttime;
-  int streamid, i;
+  int streamid, i, rc;
   int direction = n->direction == NEAREST__DIRECTION__NEXT ? DB_NEXT : DB_PREV;
   int ret_n = n->has_n ? min(MAXRECS, n->n) : 1;
 
@@ -139,8 +139,10 @@ void query_nearest(DB *dbp, Nearest *n, Response *rs, enum query_action action) 
     return;
   }
 
-  if (get_partial(cursorp, DB_SET_RANGE, &k, &v, sizeof(struct rec_val), 0) < 0) {
-    goto done;
+  if ((rc = get_partial(cursorp, DB_SET_RANGE, &k, &v, sizeof(struct rec_val), 0)) < 0) {
+    // this might put us at the end of the database...
+    if (direction == DB_PREV && rc == DB_NOTFOUND) goto next;
+    else goto done;
   }
 
   do {
