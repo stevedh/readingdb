@@ -298,6 +298,9 @@ PyObject *db_prev(unsigned long long *streamids,
 
   // load the data
   rv = db_multiple(ipp, &d);
+  if (rv == NULL) {
+    return NULL;
+  }
 
   // use the numpy flipud to return a view on the data which has it in
   // the right order (ascending timestamps).
