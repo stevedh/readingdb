@@ -3,7 +3,7 @@
 
 AC_PREREQ(2.61)
 AC_INIT(readingdb, 0.6.0, stevedh@eecs.berkeley.edu)
-AC_CONFIG_HEADER([c6/config.h])
+AC_CONFIG_HEADER([src/config.h])
 AC_CONFIG_MACRO_DIR([m4])
 
 # Checks for programs.
@@ -92,7 +92,7 @@ fi
 AC_CHECK_HEADERS(google/protobuf-c/protobuf-c.h)
 AC_SEARCH_LIBS(protobuf_c_message_pack, [protobuf-c], , AC_MSG_ERROR([ERROR: can't link against protobuf-c library]))
 
-AC_CONFIG_FILES([Makefile c6/Makefile c6/pbuf/Makefile])
-AC_CONFIG_SUBDIRS([c6/hashtable/])
+AC_CONFIG_FILES([Makefile src/Makefile src/pbuf/Makefile])
+AC_CONFIG_SUBDIRS([src/hashtable/])
 AC_OUTPUT
 

@@ -1,6 +1,6 @@
 
-SUBDIRS = c6
-EXTRA_DIST = iface_bin
+SUBDIRS = src
+EXTRA_DIST = python
 
 debbuild:
 	dpkg-buildpackage -i -I -rfakeroot -uc -us -S

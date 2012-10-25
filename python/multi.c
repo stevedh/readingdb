@@ -149,6 +149,7 @@ void *worker_thread(void *ptr) {
   } else {
     conn = __db_open(req->host, req->port, &conn_error);
     if (!conn || conn_error) {
+      fprintf(stderr, "Connection error\n");
       req->errors = conn_error;
       return NULL;
     }
@@ -166,7 +167,7 @@ void *worker_thread(void *ptr) {
     starttime = req->r->starttime;
     limit = req->r->limit;
 
-    // printf("starting load of %i (%i)\n", id, idx);
+    printf("starting load of %i (%i)\n", id, idx);
     if (id == 0) {
       break;
     }
