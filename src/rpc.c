@@ -16,21 +16,10 @@ void _rpc_copy_records(struct point *dest, Reading **src, int n) {
       dest[i].reading_sequence = src[i]->seqno;
     else
       dest[i].reading_sequence = 0;
-
-    if (src[i]->has_max)
-      dest[i].max = src[i]->max;
-    else
-      dest[i].max = LLONG_MAX;
-
-    if (src[i]->has_min)
-      dest[i].min = src[i]->min;
-    else
-      dest[i].min = LLONG_MIN;
   }
 }
 
 void _rpc_copy_reading(Reading *dest, struct point *src) {
-  double bottom = LLONG_MIN + 1, top = LLONG_MAX - 1;
   reading__init(dest);
 
   dest->timestamp = src->timestamp;
@@ -39,14 +28,8 @@ void _rpc_copy_reading(Reading *dest, struct point *src) {
   /* optional fields */
   if (src->reading_sequence != 0)
     dest->has_seqno = 1;
-  if (src->min > bottom)
-    dest->has_min = 1;
-  if (src->max < top)
-    dest->has_max = 1;
   
   dest->seqno = src->reading_sequence;
-  dest->min = src->min;
-  dest->max = src->max;
 }
 
 ReadingSet *_rpc_alloc_rs(int n) {

@@ -16,7 +16,7 @@
 /* max number of client threads */
 #define MAXCONCURRENCY 150
 
-#define NBUCKETSIZES 3
+#define NBUCKETSIZES 5
 #define MAXBUCKETRECS (60 * 5)  /* has to be >= the number of records
                                                   in the smallest bucket */
 
@@ -26,7 +26,7 @@
 
 #define DEFAULT_PAGESIZE 16384
 /* must be sorted */
-extern int bucket_sizes[NBUCKETSIZES];
+extern uint64_t bucket_sizes[NBUCKETSIZES];
 
 #define MAXQUERYSET 128
 
@@ -34,11 +34,11 @@ extern int bucket_sizes[NBUCKETSIZES];
 struct rec_key {
   /* these are in network byte-order */
   uint32_t stream_id;
-  uint32_t timestamp;
-};
+  uint64_t timestamp;
+} __attribute__((packed));
 
 struct point {
-  uint32_t timestamp;
+  uint64_t timestamp;
   uint32_t reading_sequence;
   double reading;
   double min;
@@ -49,7 +49,7 @@ struct point {
 struct rec_val {
   uint32_t n_valid;
   uint32_t period_length;
-  uint32_t tail_timestamp;
+  uint64_t tail_timestamp;
   struct point data[0];
 };
 

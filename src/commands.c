@@ -19,8 +19,8 @@ void query(DB *dbp, Query *q, Response *r, enum query_action action) {
   DBC *cursorp;
   struct rec_key k;
   struct rec_val v;
-  unsigned long long starttime, endtime;
-  int streamid;
+  uint64_t starttime, endtime;
+  uint32_t streamid;
   int cursor_flags = 0;
   
   streamid = q->streamid;

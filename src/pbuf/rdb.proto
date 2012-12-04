@@ -1,10 +1,8 @@
 
 message Reading {
-  required uint32 timestamp = 1;
+  required uint64 timestamp = 1;
   required double value = 2;
-  optional uint32 seqno = 3;
-  optional double min = 4;
-  optional double max = 5;
+  optional uint64 seqno = 3;
 }
 
 message ReadingSet {
@@ -14,13 +12,9 @@ message ReadingSet {
 }
 
 message DatabaseDelta {
-  optional int32 timestamp = 1;
+  optional int64 timestamp = 1;
   optional int64 value = 2;
-  optional int32 seqno = 3;
-  optional int64 min_delta = 4;
-  optional int64 max_delta = 5;
-  optional double min = 6;
-  optional double max = 7;
+  optional int64 seqno = 3;
 }
 
 message DatabaseRecord {
@@ -32,15 +26,15 @@ message DatabaseRecord {
 message Query {
   required uint32 streamid = 1;
   required uint32 substream = 2;
-  required uint32 starttime = 3;
-  required uint32 endtime = 4;
+  required uint64 starttime = 3;
+  required uint64 endtime = 4;
   optional uint32 action = 5;
 }
 
 message Nearest {
   required uint32 streamid = 1;
   required uint32 substream = 2;
-  required uint32 reference = 3;
+  required uint64 reference = 3;
   enum Direction {
     NEXT = 1;
     PREV = 2;
@@ -75,8 +69,3 @@ enum MessageType {
   DELETE = 5;
 }
 
-service ReadingDB {
-  rpc Ask (Query) returns (Response);
-  rpc Tell (ReadingSet) returns (Response);
-  rpc Iter (Nearest) returns (Response);
-}

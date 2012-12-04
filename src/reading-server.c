@@ -43,9 +43,11 @@ struct config conf;
 
 struct itimerval global_itimer;
 
-int bucket_sizes[NBUCKETSIZES] = {60 * 5,  /* five minutes */
-                                  60 * 60, /* one hour */
-                                  60 * 60 * 24}; /* one day */
+uint64_t bucket_sizes[NBUCKETSIZES] = {250, /* 250 ms */
+                                       1000, /* 1 second */
+                                       60 * 5 * 1000,  /* five minutes */
+                                       60 * 60 * 1000, /* one hour */
+                                       60 * 60 * 24 * 1000}; /* one day */
 
 sig_atomic_t do_shutdown = 0;
 void sig_shutdown(int arg) {
@@ -223,6 +225,7 @@ int get_bucket(DBC *cursorp, struct rec_key *k, struct rec_val *v) {
     /* find the start of the current bucket */
     cur_k.stream_id = k->stream_id;
     cur_k.timestamp = k->timestamp - (k->timestamp % bucket_sizes[bucket_size_idx]);
+    debug("get_bucket: looking for %u %lu\n", cur_k.stream_id, cur_k.timestamp);
     /* key query */
     /* acquire write locks to avoid deadlock */
     if (get_partial(cursorp, DB_SET | DB_RMW, &cur_k, v, sizeof(struct rec_val), 0) == 0) {
@@ -317,7 +320,6 @@ int add(DB *dbp, ReadingSet *rs) {
   int cur_rec, ret;
   DBC *cursorp;
   struct rec_key cur_k;
-  struct rec_val cur_v;
   DB_TXN *tid = NULL;
   unsigned char buf[POINT_OFF(MAXBUCKETRECS + NBUCKETSIZES)];
   struct rec_val *v = (struct rec_val *)buf;
@@ -325,7 +327,7 @@ int add(DB *dbp, ReadingSet *rs) {
   bool_t bucket_dirty = FALSE, bucket_valid = FALSE;
 
   bzero(&cur_k, sizeof(cur_k));
-  bzero(&cur_v, sizeof(cur_v));
+  bzero(buf, sizeof(buf));
 
   if ((ret = env->txn_begin(env, NULL, &tid, 0)) != 0) {
     error("txn_begin: %s\n", db_strerror(ret));
@@ -365,17 +367,19 @@ int add(DB *dbp, ReadingSet *rs) {
       cur_k.stream_id = rs->streamid;
       cur_k.timestamp = rs->data[cur_rec]->timestamp;
 
-      if ((ret = get_bucket(cursorp, &cur_k, &cur_v)) <= 0) {
+      if ((ret = get_bucket(cursorp, &cur_k, v)) <= 0) {
         /* create a new bucket */
 
         /* the key has been updated by get_bucket */
         v->n_valid = 0;
         v->period_length = bucket_sizes[-ret];
         v->tail_timestamp = 0;
-        debug("Created new bucket anchor: %i length: %i\n", cur_k.timestamp, v->period_length);
+        debug("Created new bucket anchor: %i length: %i\n", cur_k.timestamp, 
+              v->period_length);
       } else {
-        debug("Found existing bucket streamid: %i anchor: %i length: %i\n", 
+        debug("Found existing bucket streamid: %i anchor: %lu length: %lu\n", 
               cur_k.stream_id, cur_k.timestamp, v->period_length);
+
         if ((ret = get(cursorp, DB_SET | DB_RMW, &cur_k, v, sizeof(buf))) < 0) {
           warn("error reading bucket: %s\n", db_strerror(ret));
           goto abort;
@@ -440,7 +444,6 @@ int add(DB *dbp, ReadingSet *rs) {
       if (split_bucket(dbp, cursorp, tid, &cur_k) < 0)
         goto abort;
       bzero(&cur_k, sizeof(cur_k));
-      bzero(&cur_v, sizeof(cur_v));
     }
   }
 

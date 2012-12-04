@@ -22,6 +22,14 @@
 #include "readingdb.h"
 #include "config.h"
 
+#if HAVE_ENDIAN_H
+#include <endian.h>
+#elif HAVE_LIBKERN_OSBYTEORDER_H
+#include <libkern/OSByteOrder.h>
+#define htobe64(x) OSSwapConstInt64(x)
+#define betoh64(x) OSSwapConstInt64(x)
+#endif
+
 #ifdef WRITE_COMPRESSION_LOG
 #define CMPR_LOG "cmpr.log"
 static void write_cmprlog(unsigned long long streamid,
@@ -75,7 +83,7 @@ int put(DB *dbp, DB_TXN *txn, struct rec_key *k, struct rec_val *v) {
         k->stream_id, k->timestamp, len);
 
   put_k.stream_id = htonl(k->stream_id);
-  put_k.timestamp = htonl(k->timestamp);
+  put_k.timestamp = htobe64(k->timestamp);
 
   key.data = &put_k;
   key.size = key.ulen = sizeof(struct rec_key);
@@ -106,10 +114,10 @@ int get(DBC *cursorp, int flags, struct rec_key *k, struct rec_val *v, int len) 
   bzero(&key, sizeof(key));
   bzero(&data, sizeof(data));
 
-  debug("get stream_id: %i timestamp: 0x%x\n", k->stream_id, k->timestamp);
+  debug("get stream_id: %i timestamp: 0x%lx\n", k->stream_id, k->timestamp);
 
   get_k.stream_id = htonl(k->stream_id);
-  get_k.timestamp = htonl(k->timestamp);
+  get_k.timestamp = htobe64(k->timestamp);
 
   key.data = &get_k;
   key.size = key.ulen = sizeof(struct rec_key);
@@ -128,7 +136,7 @@ int get(DBC *cursorp, int flags, struct rec_key *k, struct rec_val *v, int len) 
   if ((ret = cursorp->get(cursorp, &key, &data, flags)) == 0) {
     if (flags & DB_NEXT || flags & DB_SET_RANGE) {
       k->stream_id = ntohl(get_k.stream_id);
-      k->timestamp = ntohl(get_k.timestamp);
+      k->timestamp = betoh64(get_k.timestamp);
     }
 
 #ifdef USE_COMPRESSION
@@ -159,6 +167,5 @@ int get_partial(DBC *cursorp, int flags, struct rec_key *k,
   }
 
   memcpy(buf, unpacked + off, len);
-
   return ret;
 }

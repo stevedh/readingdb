@@ -137,14 +137,6 @@ static int pbuf_compress(struct rec_val *v, void *buf, int outbuf) {
       db->first->has_seqno = 1;
       db->first->seqno = v->data[0].reading_sequence;
     }
-    if (v->data[0].min > bottom) {
-      db->first->has_min = 1;
-      db->first->min = v->data[0].min;
-    }
-    if (v->data[0].max < top) {
-      db->first->has_max = 1;
-      db->first->max = v->data[0].max;
-    }
 
     for (i = 1; i < v->n_valid; i++) {
       /* include timestamp deltas if they're different */
@@ -167,28 +159,6 @@ static int pbuf_compress(struct rec_val *v, void *buf, int outbuf) {
             v->data[i-1].reading_sequence;
         else
           db->deltas[i-1]->seqno = v->data[i].reading_sequence;
-      }
-
-      /* include deltas or full readings for min and max */
-      if (HAS_MIN(v->data[i].min)) {
-        if (HAS_MIN(v->data[i-1].min)) {
-          // printf("HAS MIN");
-          db->deltas[i-1]->min_delta = DOUBLE_DELTA(v->data[i].min, v->data[i-1].min);
-          db->deltas[i-1]->has_min_delta = 1;
-        } else {
-          db->deltas[i-1]->min = v->data[i].min;
-          db->deltas[i-1]->has_min = 1;
-        }
-      }
-      if (HAS_MAX(v->data[i].max)) {
-        if (HAS_MAX(v->data[i-1].max)) {
-          // printf("HAS MAX\n");
-          db->deltas[i-1]->max_delta = DOUBLE_DELTA(v->data[i].max, v->data[i-1].max);
-          db->deltas[i-1]->has_max_delta = 1;
-        } else {
-          db->deltas[i-1]->max = v->data[i].max;
-          db->deltas[i-1]->has_max = 1;
-        }
       }
     }
   }
@@ -246,7 +216,7 @@ static int pbuf_decompress(void *buf, int len, struct rec_val *val, int sz) {
   val->period_length = rec->period_length;
   val->n_valid = rec->n_deltas + (rec->first == NULL ? 0 : 1);
 
-  //  printf("read back n_valid: %i\n", val->n_valid);
+  printf("read back n_valid: %i period_length: %u\n", val->n_valid, val->period_length);
 
   if (val->n_valid == 0) {
     database_record__free_unpacked(rec, NULL);
