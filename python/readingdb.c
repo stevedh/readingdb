@@ -95,69 +95,76 @@ struct sock_request *db_open(const char *host, const short port) {
 }
 
 int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
-  int i, len;
+  int len;
   ReadingSet *r;
   struct pbuf_header h;
   unsigned char *buf;
+  PyObject *iter, *tuple;
+
+  if (!ipp) {
+    PyErr_SetString(PyExc_ValueError, "db_add: conn is NULL");
+    return 0;
+  }
 
   r = _rpc_alloc_rs(SMALL_POINTS);
   if (!r) {
     PyErr_SetNone(PyExc_MemoryError);
     return 0;
   }
-  if (!ipp) {
-    PyErr_SetString(PyExc_ValueError, "db_add: conn is NULL");
-    return 0;
-  }
 
   r->streamid = streamid;
   r->substream = ipp->substream;
 
-  if (!PyList_Check(values)) {
+  if (PyObject_Size(values) > SMALL_POINTS) {
     _rpc_free_rs(r);
+    PyErr_Format(PyExc_ValueError, "db_add: too many points to add: max is %i", SMALL_POINTS);
     return 0;
   }
 
-  if (PyList_Size(values) > SMALL_POINTS) {
+  iter = PyObject_GetIter(values);
+  if (iter == NULL) {
     _rpc_free_rs(r);
+    PyErr_SetString(PyExc_ValueError, "db_add: can't get iterator to add");
     return 0;
   }
 
-  for (i = 0; i < PyList_Size(values); i++) {
-    PyObject *tuple = PyList_GetItem(values, i);
-    reading__init(r->data[i]);
-    if (PyTuple_Size(tuple) == 5) {
-      if (PyArg_ParseTuple(tuple, "llddd",
-                           &r->data[i]->timestamp,
-                           &r->data[i]->seqno,
-                           &r->data[i]->value,
-                           &r->data[i]->min,
-                           &r->data[i]->max) < 0)
-        break;
-      r->data[i]->has_min = 1;
-      r->data[i]->has_max = 1;
-    } else if (PyTuple_Size(tuple) == 3) {
-      if (PyArg_ParseTuple(tuple, "lld",
-                           &r->data[i]->timestamp,
-                           &r->data[i]->seqno,
-                           &r->data[i]->value) < 0)
-        break;
-    } else if (PyTuple_Size(tuple) == 2) {
-      if (PyArg_ParseTuple(tuple, "ld",
-                           &r->data[i]->timestamp,
-                           &r->data[i]->value) < 0)
-        break;
-      r->data[i]->seqno = 0;
-    } else {
+  while ((tuple = PyIter_Next(iter))) {
+    PyObject *val;
+    reading__init(r->data[r->n_data]);
+    
+    if (!PySequence_Check(tuple) || !(PySequence_Size(tuple) == 2 || 
+                                      PySequence_Size(tuple) == 3)) {
       _rpc_free_rs(r);
+      Py_DECREF(iter);
+      Py_DECREF(tuple);
       PyErr_Format(PyExc_ValueError, 
-                   "Invalid data passed: must be a list of tuples");
+                   "Invalid data passed: must be a list of sequences");
       return 0;
     }
-    if (r->data[i]->seqno != 0)
-      r->data[i]->has_seqno = 1;
+
+    /* this could be optimized... */
+    val = PySequence_Tuple(tuple);
+    if (PyObject_Size(tuple) == 3) {
+      if (PyArg_ParseTuple(val, "lld",
+                           &r->data[r->n_data]->timestamp,
+                           &r->data[r->n_data]->seqno,
+                           &r->data[r->n_data]->value) < 0)
+        break;
+    } else if (PyObject_Size(tuple) == 2) {
+      if (PyArg_ParseTuple(val, "ld",
+                           &r->data[r->n_data]->timestamp,
+                           &r->data[r->n_data]->value) < 0)
+        break;
+      r->data[r->n_data]->seqno = 0;
+    }
+    if (r->data[r->n_data]->seqno != 0)
+      r->data[r->n_data]->has_seqno = 1;
+
     r->n_data ++;
+    Py_DECREF(val);
+    Py_DECREF(tuple);
   }
+  Py_DECREF(iter);
 
   len = reading_set__get_packed_size(r);
   buf = malloc(len);

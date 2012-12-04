@@ -167,7 +167,7 @@ void *worker_thread(void *ptr) {
     starttime = req->r->starttime;
     limit = req->r->limit;
 
-    printf("starting load of %i (%i)\n", id, idx);
+    // printf("starting load of %i (%i)\n", id, idx);
     if (id == 0) {
       break;
     }
