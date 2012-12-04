@@ -13,10 +13,10 @@ all-local: module
 install: module
 	python setup.py install
 
-prep: readingdb.i $(SWIG_OUTPUTS) ../c6/pbuf/rdb.pb-c.c
-	mkdir -p c6/pbuf
-	cp -r ../c6/pbuf/ c6/pbuf
-	cp ../c6/readingdb.h ../c6/rpc.c ../c6/rpc.h ../c6/commands.h c6
+prep: readingdb.i $(SWIG_OUTPUTS) ../src/pbuf/rdb.pb-c.c
+	mkdir -p src/pbuf
+	cp -r ../src/pbuf/ src/pbuf
+	cp ../src/readingdb.h ../src/rpc.c ../src/rpc.h ../src/commands.h src
 
 module: prep
 	python setup.py build_ext --inplace
@@ -33,17 +33,17 @@ builddeb: distclean prep
 	rm -rf ../$(PROJECT)-$(VERSION)
 	dpkg-buildpackage -i -I -rfakeroot -uc -us -S
 
-$(SWIG_OUTPUTS): readingdb.i ../c6/readingdb.h readingdb_py.h
+$(SWIG_OUTPUTS): readingdb.i ../src/readingdb.h readingdb_py.h
 	swig -python -keyword -Wall readingdb.i
 
-../c6/pbuf/rdb.pb-c.c: ../c6/pbuf/rdb.proto
-	cd ../c6/pbuf/ && make
+../src/pbuf/rdb.pb-c.c: ../src/pbuf/rdb.proto
+	cd ../src/pbuf/ && make
 
 clean:
 	-rm -rf ../$(PROJECT)_$(VERSION).orig.tar.gz ../$(PROJECT)-$(VERSION)
 	-rm -f _readingdb.so *.pyc 
 	-python setup.py clean
-	-rm -rf c6
+	-rm -rf src
 
 distclean: clean
 	-rm -f  $(SWIG_OUTPUTS)

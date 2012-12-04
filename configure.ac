@@ -57,6 +57,9 @@ AC_FUNC_MALLOC
 AC_FUNC_REALLOC
 AC_CHECK_FUNCS([memset])
 
+AC_CHECK_HEADERS([endian.h libkern/OSByteOrder.h])
+
+
 # bdb
 AC_SEARCH_LIBS(db_strerror, [db], , AC_MSG_ERROR([ERROR: can't link against berkeley db]))
 dnl AC_MSG_CHECKING(for acceptable berkeley db version)

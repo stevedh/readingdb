@@ -14,9 +14,9 @@
 
 #include "readingdb_py.h"
 
-#include "c6/readingdb.h"
-#include "c6/rpc.h"
-#include "c6/commands.h"
+#include "src/readingdb.h"
+#include "src/rpc.h"
+#include "src/commands.h"
 
 #define TIMEOUT_SECS 10
 #define SIGREPLACE SIGTERM

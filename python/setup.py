@@ -4,7 +4,7 @@ import numpy as np
 
 readingdb_module = Extension('_readingdb',
                              sources=['readingdb_wrap.c', 'readingdb.c', 'multi.c',
-                                      'c6/pbuf/rdb.pb-c.c', 'c6/rpc.c'],
+                                      'src/pbuf/rdb.pb-c.c', 'src/rpc.c'],
                              libraries=['protobuf-c'])
 
 setup (name='readingdb-python',

@@ -216,7 +216,7 @@ static int pbuf_decompress(void *buf, int len, struct rec_val *val, int sz) {
   val->period_length = rec->period_length;
   val->n_valid = rec->n_deltas + (rec->first == NULL ? 0 : 1);
 
-  printf("read back n_valid: %i period_length: %u\n", val->n_valid, val->period_length);
+  // printf("read back n_valid: %i period_length: %u\n", val->n_valid, val->period_length);
 
   if (val->n_valid == 0) {
     database_record__free_unpacked(rec, NULL);

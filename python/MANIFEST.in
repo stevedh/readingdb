@@ -1,4 +1,4 @@
-recursive-include c6 *.c 
-recursive-include c6 *.h
+recursive-include src *.c 
+recursive-include src *.h
 include *.c
 include *.h
