@@ -23,11 +23,21 @@
 #include "config.h"
 
 #if HAVE_ENDIAN_H
+// always include this
 #include <endian.h>
 #elif HAVE_LIBKERN_OSBYTEORDER_H
+// OSX: use the kernel-provided ones
 #include <libkern/OSByteOrder.h>
 #define htobe64(x) OSSwapConstInt64(x)
 #define betoh64(x) OSSwapConstInt64(x)
+#endif
+#if HAVE_LINUX_SWAB_H
+// some linux distros don't define this but it always seems to be in swab.h
+#undef htobe64
+#undef betoh64
+#include <linux/swab.h>
+#define htobe64(x) __swab64(x)
+#define betoh64(x) __swab64(x)
 #endif
 
 #ifdef WRITE_COMPRESSION_LOG

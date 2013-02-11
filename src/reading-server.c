@@ -129,7 +129,7 @@ int eqfn_streamid(void *k1, void *k2) {
 void default_config(struct config *c) {
   c->loglevel = LOGLVL_INFO;
   strcpy(c->data_dir, DATA_DIR);
-  c->port = 4242;
+  c->port = 5252;
   c->cache_size = 32;
   c->commit_interval = 10;
   c->deadlock_interval = 2;
@@ -611,9 +611,9 @@ void usage(char *progname) {
           "\n\t%s [options]\n"
           "\t\t-v                 verbose\n"
           "\t\t-h                 help\n"
-          "\t\t-d <datadir>       set data directory (%s)\n"
+          "\t\t-d <datadir>       set data directory (%s) HIGHRES ONLY\n"
           "\t\t-c <interval>      set commit interval (10s)\n"
-          "\t\t-p <port>          local port to bind to (4242)\n"
+          "\t\t-p <port>          local port to bind to (5252)\n"
           "\t\t-l <interval>      how often to run the deadlock detector (2s)\n"
           "\t\t-a <interval>      how often to checkpoint and archive (300s)\n"
           "\t\t-s <cache size>    cache size (32MB)\n\n",

@@ -46,7 +46,7 @@ AC_DEFINE_UNQUOTED([DATA_DIR], ["$DATA_DIR"], [Default data directory])
 
 # Checks for header files.
 AC_HEADER_STDC
-AC_CHECK_HEADERS([stdlib.h string.h endian.h libkern/OSByteOrder.h])
+AC_CHECK_HEADERS([stdlib.h string.h endian.h libkern/OSByteOrder.h linux/swab.h])
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
