@@ -15,7 +15,7 @@ install: module
 
 prep: readingdb.i $(SWIG_OUTPUTS) ../src/pbuf/rdb.pb-c.c
 	mkdir -p src/pbuf
-	cp -r ../src/pbuf/ src/pbuf
+	cp -r ../src/pbuf/* src/pbuf
 	cp ../src/readingdb.h ../src/rpc.c ../src/rpc.h ../src/commands.h src
 
 module: prep
