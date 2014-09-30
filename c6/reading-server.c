@@ -106,7 +106,7 @@ struct stats stats = {0, 0, 0, 0};
     stats.STAT ++;                                             \
     pthread_mutex_unlock(&stats_lock); }
 
-inline int valid_bucketsize(int length) {
+int valid_bucketsize(int length) {
   int i;
   for (i = 0; i < NBUCKETSIZES; i++) {
     if (length == bucket_sizes[i]) return 1;
