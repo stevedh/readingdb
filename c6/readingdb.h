@@ -11,7 +11,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#define MAX_SUBSTREAMS 10
+#define MAX_SUBSTREAMS 14
 
 /* max number of client threads */
 #define MAXCONCURRENCY 150

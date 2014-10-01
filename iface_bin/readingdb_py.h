@@ -13,10 +13,12 @@ struct request_desc {
     REQ_QUERY, REQ_ITER,
   } type;
   unsigned long long *streamids;
+  int substream;
   unsigned long long starttime; 
   unsigned long long endtime;
   int direction;
   int limit;
+  Sketch sketch;
 };
 
 struct pyerr {
@@ -38,6 +40,8 @@ PyObject *db_query(unsigned long long *streamids,
                    unsigned long long starttime, 
                    unsigned long long endtime,
                    int limit,
+                   int substream,
+                   PyObject *sketch,
                    struct sock_request *ipp) ;
 PyObject *db_next(unsigned long long *streamid, 
                   unsigned long long reference, 
@@ -63,10 +67,13 @@ void db_del(struct sock_request *ipp,
 int db_query_all(struct sock_request *ipp, unsigned long long streamid, 
                  unsigned long long starttime, 
                  unsigned long long endtime,
+                 int substream,
+                 const Sketch *sketch,
                  enum query_action action);
 int db_iter(struct sock_request *ipp, int streamid, 
                   unsigned long long reference, int direction, int ret_n);
 
 PyObject *db_multiple(struct sock_request *ipp, const struct request_desc *req);
+// PyObject *db_sketches(struct sock_request *dbp);
 
 #endif

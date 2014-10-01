@@ -12,6 +12,7 @@ struct sock_request *db_open(char *host="localhost", short port=4242);
 void db_close(struct sock_request *dbp);
 
 
+
 // set up with the right database
 void db_setup(char *a_host, 
               short a_port,
@@ -59,6 +60,8 @@ PyObject *db_query(unsigned long long *streamid,
                    unsigned long long starttime, 
                    unsigned long long endtime,
                    int limit = 10000,
+                   int substream = 0,
+                   PyObject *sketch = NULL,
                    struct sock_request *conn = NULL);
 
 %exception db_next {
@@ -88,3 +91,9 @@ int db_add(struct sock_request *dbp, int streamid, PyObject *data);
 void db_del(struct sock_request *dbp, int streamid, 
             unsigned long long starttime,
             unsigned long long endtime);
+
+// %exception db_sketches {
+//   $action
+//   if (!result) return NULL;
+// }
+// PyObject * db_sketches(struct sock_request *dbp);

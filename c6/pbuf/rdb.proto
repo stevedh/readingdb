@@ -35,6 +35,7 @@ message Query {
   required uint32 starttime = 3;
   required uint32 endtime = 4;
   optional uint32 action = 5;
+  optional Sketch sketch = 6;
 }
 
 message Nearest {
@@ -62,6 +63,7 @@ message Response {
     FAIL = 2;
     FAIL_PARAM = 3;
     FAIL_MEM = 4;
+    FAIL_COMMAND = 5;
   }
   required ErrorCode error = 1;
   optional ReadingSet data = 2;
@@ -79,4 +81,18 @@ service ReadingDB {
   rpc Ask (Query) returns (Response);
   rpc Tell (ReadingSet) returns (Response);
   rpc Iter (Nearest) returns (Response);
+}
+
+message Sketch {
+  enum SketchType {
+    NULL = 0;
+    COUNT = 1;
+    MEAN = 2;
+    MIN = 3;
+    MAX = 4;
+    FIRST = 5;
+    MEDIAN = 6;
+  };
+  required SketchType type = 1;
+  required int32 window = 2;
 }

@@ -30,6 +30,7 @@
 #include "commands.h"
 #include "config.h"
 #include "rdb.h"
+#include "sketch.h"
 
 struct config conf;
 extern struct subdb dbs[MAX_SUBSTREAMS];
@@ -167,6 +168,7 @@ int optparse(int argc, char **argv, struct config *c) {
 void process_pbuf(struct sock_request *request) {
   struct pbuf_header h;
   int current_alloc = 0;
+  int substream;
   void *buf;
   Query *q = NULL;
   ReadingSet *rs = NULL;
@@ -189,7 +191,7 @@ void process_pbuf(struct sock_request *request) {
 
       current_alloc = ntohl(h.body_length);
     }
-    if (fread(buf, ntohl(h.body_length), 1, request->sock_fp) <= 0)
+    if (fread(buf, ntohl(h.body_length), 1, request->sock_fp) < 0)
       goto abort;
 
     switch (ntohl(h.message_type)) {
@@ -198,12 +200,19 @@ void process_pbuf(struct sock_request *request) {
       if (q == NULL) goto abort;
       if (q->substream >= MAX_SUBSTREAMS) {
         query__free_unpacked(q, NULL);
-        
         goto abort;
       } 
+      if (q->substream == 0 && 
+          q->sketch &&
+          get_sketch_substream(q->sketch) > 0) {
+        substream = get_sketch_substream(q->sketch);
+        info("returning substream %i for sketch\n", substream);
+      } else {
+        substream = q->substream;
+      }
       INCR_STAT(queries);
       debug("query streamid: %i substream: %i start: %i end: %i\n",
-           q->streamid, q->substream, q->starttime, q->endtime);
+           q->streamid, substream, q->starttime, q->endtime);
       response.error = RESPONSE__ERROR_CODE__OK;
       response.data = _rpc_alloc_rs(MAXRECS);
       if (!response.data) {
@@ -214,13 +223,13 @@ void process_pbuf(struct sock_request *request) {
       }
 
       response.data->streamid = q->streamid;
-      response.data->substream = q->substream;
+      response.data->substream = substream;
       response.data->n_data = 0;
 
       if (q->has_action) {
-        query(dbs[q->substream].dbp, q, &response, q->action); 
+        query(dbs[substream].dbp, q, &response, q->action); 
       } else {
-        query(dbs[q->substream].dbp, q, &response, QUERY_DATA); 
+        query(dbs[substream].dbp, q, &response, QUERY_DATA); 
       }
 
       rpc_send_reply(request, &response);
@@ -277,6 +286,10 @@ void process_pbuf(struct sock_request *request) {
       del(dbs[d->substream].dbp, d);
       delete__free_unpacked(d, NULL);
       INCR_STAT(deletes);
+      break;
+    default:
+      response.error = RESPONSE__ERROR_CODE__FAIL_COMMAND;
+      rpc_send_reply(request, &response);
       break;
     }
   }

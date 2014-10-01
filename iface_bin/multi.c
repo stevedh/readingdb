@@ -70,7 +70,9 @@ int setup_request(struct sock_request *conn,
                   unsigned long long starttime) {
   switch (req->type) {
   case REQ_QUERY:
-    return db_query_all(conn, streamid, starttime, req->endtime, QUERY_DATA);
+    return db_query_all(conn, streamid, starttime, 
+                        req->endtime, req->substream, 
+                        &req->sketch, QUERY_DATA);
   case REQ_ITER:
     return db_iter(conn, streamid, starttime, req->direction, req->limit);
   default:
@@ -108,6 +110,7 @@ int read_numpy_resultset(struct sock_request *ipp,
 /*          r->error, r->data->n_data, len); */
   if (r->error != RESPONSE__ERROR_CODE__OK) {
     // PyErr_Format(PyExc_Exception, "read_resultset: received error from server: %i", r->error);
+    response__free_unpacked(r, NULL);
     return -errno;
   }
 
@@ -142,6 +145,7 @@ void *worker_thread(void *ptr) {
   int id, idx, limit, rv = 0, conn_error = 0;
   unsigned long long starttime;
   struct request *req = ptr;
+  int substream;
 
   // don't need a lock, this might block
   if (req->conn != NULL) {
@@ -165,6 +169,7 @@ void *worker_thread(void *ptr) {
     pthread_mutex_unlock(&req->lock);
     starttime = req->r->starttime;
     limit = req->r->limit;
+    substream = req->r->substream;
 
     // printf("starting load of %i (%i)\n", id, idx);
     if (id == 0) {

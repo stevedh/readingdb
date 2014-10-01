@@ -17,7 +17,7 @@
 #include "c6/readingdb.h"
 #include "c6/rpc.h"
 #include "c6/commands.h"
-
+#include "c6/sketch.h"
 #define TIMEOUT_SECS 10
 #define SIGREPLACE SIGTERM
 
@@ -187,20 +187,28 @@ int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
 }
 
 int db_query_all(struct sock_request *ipp, unsigned long long streamid, 
-                       unsigned long long starttime, 
-                       unsigned long long endtime,
-                       enum query_action action) {
+                 unsigned long long starttime, 
+                 unsigned long long endtime,
+                 int substream,
+                 const Sketch *sketch,
+                 enum query_action action) {
   Query q = QUERY__INIT; 
   struct pbuf_header h;
   unsigned char buf [512];
   int len;
 
   q.streamid = streamid;
-  q.substream = ipp->substream;
+  q.substream = substream;
   q.starttime = starttime;
   q.endtime = endtime;
   q.has_action = 1;
   q.action = action;
+
+  if (sketch && sketch->type != SKETCH__SKETCH_TYPE__NULL) {
+    q.sketch = sketch;
+  } else {
+    q.sketch = NULL;
+  }
 
   if ((len = query__get_packed_size(&q)) < sizeof(buf)) {
     /* pack the request */
@@ -261,13 +269,47 @@ PyObject *db_query(unsigned long long *streamids,
                    unsigned long long starttime, 
                    unsigned long long endtime,
                    int limit,
+                   int substream,
+                   PyObject *sketch,
                    struct sock_request *ipp) {
+  char *sketch_type;
+  int sketch_window, i, sketch_type_val = -1;
   struct request_desc d;
   d.streamids = streamids;
+  d.substream = substream;
   d.type = REQ_QUERY;
   d.starttime = starttime;
   d.endtime = endtime;
   d.limit = limit > 0 ? limit : 1e6;
+  sketch__init(&d.sketch);
+  d.sketch.type = SKETCH__SKETCH_TYPE__NULL;
+  d.sketch.window = 0;
+
+  if (sketch) {
+    printf ("parsing sketch\n");
+    if (!PyArg_ParseTuple(sketch, "si", &sketch_type, &sketch_window)) {
+      PyErr_SetString(PyExc_ValueError, "db_query: invalid sketch definition");
+      return NULL;
+    }
+    for (i = 0; i < sizeof(sketch_names) / sizeof(sketch_names[0]); i ++) {
+      if (strcmp(sketch_names[i], sketch_type) == 0) {
+        sketch_type_val = i;
+        break;
+      }
+    }
+    if (sketch_type_val < 0) {
+      PyErr_SetString(PyExc_ValueError, "db_query: invalid sketch name");
+      return NULL;
+    }
+    if (substream != 0) {
+      PyErr_SetString(PyExc_ValueError, "db_query: cannot request both sketch and substream");
+      return NULL;
+    }
+
+    d.sketch.type = sketch_type_val;
+    d.sketch.window = sketch_window;
+  }
+
   return db_multiple(ipp, &d);
 }
 
@@ -369,3 +411,71 @@ void db_close(struct sock_request *ipp) {
   fclose(ipp->sock_fp);
   free(ipp);
 }
+
+/* PyObject *db_sketches(struct sock_request *ipp) {   */
+/*   struct pbuf_header h; */
+/*   Response *r; */
+/*   int len, i; */
+/*   void *reply; */
+/*   PyObject *rv = NULL; */
+
+/*   h.message_type = htonl(MESSAGE_TYPE__SKETCHLIST); */
+/*   h.body_length = htonl(0); */
+/*   printf("%i\n", MESSAGE_TYPE__SKETCHLIST); */
+/*   if (fwrite(&h, sizeof(h), 1, ipp->sock_fp) <= 0) */
+/*     goto error; */
+
+/*   /\* read the reply *\/ */
+/*   if (fread(&h, sizeof(h), 1, ipp->sock_fp) <= 0) { */
+/*     PyErr_Format(PyExc_IOError, "db_sketches: error reading from socket: %s", strerror(errno)); */
+/*     return NULL; */
+/*   } */
+/*   len = ntohl(h.body_length); */
+/*   reply = malloc(len); */
+/*   if (!reply)  */
+/*     return PyErr_NoMemory(); */
+
+/*   if (fread(reply, len, 1, ipp->sock_fp) <= 0) { */
+/*     free(reply); */
+/*     PyErr_Format(PyExc_IOError, "db_sketches: error reading from socket: %s", strerror(errno)); */
+/*     return NULL; */
+/*   } */
+
+/*   r = response__unpack(NULL, len, reply); */
+/*   free(reply); */
+/*   if (!r) { */
+/*     PyErr_Format(PyExc_IOError, "db_sketches: error unpacking"); */
+/*     return NULL; */
+/*   } */
+
+/*   if (r->error != RESPONSE__ERROR_CODE__OK) { */
+/*     PyErr_Format(PyExc_Exception, "read_resultset: received error from server: %i", r->error); */
+/*     response__free_unpacked(r, NULL); */
+/*     return NULL; */
+/*   } */
+
+
+/*   rv = PyList_New(r->sketches->n_sketches); */
+/*   if (!rv) { */
+/*     response__free_unpacked(r, NULL); */
+/*     return PyErr_NoMemory(); */
+/*   } */
+/*   for (i = 0; i < r->sketches->n_sketches; i++) { */
+/*     char *name = "unknown"; */
+/*     if (r->sketches->sketches[i]->type >= 0 && */
+/*         r->sketches->sketches[i]->type < sizeof(sketch_names) / sizeof(sketch_names[0])) { */
+/*       name = sketch_names[r->sketches->sketches[i]->type]; */
+/*     } */
+/*     PyList_SetItem(rv, i, Py_BuildValue("si",  */
+/*                                         name, */
+/*                                         r->sketches->sketches[i]->window)); */
+/*   } */
+
+/*   response__free_unpacked(r, NULL); */
+/*   return rv; */
+
+/*  free_error: */
+/*  error: */
+/*   PyErr_SetString(PyExc_IOError, "db_sketches: server error"); */
+/*   return NULL; */
+/* } */

@@ -1,5 +1,6 @@
 
 #include <stdlib.h>
+#include <errno.h>
 #include <pthread.h>
 #include <signal.h>
 #include <string.h>
@@ -11,20 +12,13 @@
 #include "rpc.h"
 #include "pbuf/rdb.pb-c.h"
 #include "commands.h"
+#include "sketch.h"
+#include "config.h"
 
 sig_atomic_t do_shutdown = 0;
 pthread_mutex_t stats_lock = PTHREAD_MUTEX_INITIALIZER;
 struct stats stats = {0};
 extern struct subdb dbs[MAX_SUBSTREAMS];
-
-
-
-enum {
-  S_COUNT = 0,
-  S_MEAN = 1,
-  S_MIN = 2,
-  S_MAX = 3,
-};
 
 ReadingSet **w_stats(ReadingSet *window, 
                    unsigned long long start, 
@@ -60,63 +54,38 @@ ReadingSet **w_stats(ReadingSet *window,
     };
 
     if (count > 0) {
-      rv[S_COUNT]->data[window_idx]->timestamp = current;
-      rv[S_COUNT]->data[window_idx]->value = count;
+      rv[SKETCH__SKETCH_TYPE__COUNT-1]->data[window_idx]->timestamp = current;
+      rv[SKETCH__SKETCH_TYPE__COUNT-1]->data[window_idx]->value = count;
 
-      rv[S_MEAN]->data[window_idx]->timestamp = current;
-      rv[S_MEAN]->data[window_idx]->value = (sum / count);
+      rv[SKETCH__SKETCH_TYPE__MEAN-1]->data[window_idx]->timestamp = current;
+      rv[SKETCH__SKETCH_TYPE__MEAN-1]->data[window_idx]->value = (sum / count);
 
-      rv[S_MAX]->data[window_idx]->timestamp = current;
-      rv[S_MAX]->data[window_idx]->value = max;
+      rv[SKETCH__SKETCH_TYPE__MAX-1]->data[window_idx]->timestamp = current;
+      rv[SKETCH__SKETCH_TYPE__MAX-1]->data[window_idx]->value = max;
 
-      rv[S_MIN]->data[window_idx]->timestamp = current;
-      rv[S_MIN]->data[window_idx]->value = min;
+      rv[SKETCH__SKETCH_TYPE__MIN-1]->data[window_idx]->timestamp = current;
+      rv[SKETCH__SKETCH_TYPE__MIN-1]->data[window_idx]->value = min;
 
       window_idx ++;
     }
   };
-  rv[S_COUNT]->n_data = window_idx;
-  rv[S_MEAN]->n_data = window_idx;
-  rv[S_MAX]->n_data = window_idx;
-  rv[S_MIN]->n_data = window_idx;
+  rv[SKETCH__SKETCH_TYPE__COUNT-1]->n_data = window_idx;
+  rv[SKETCH__SKETCH_TYPE__MEAN-1]->n_data = window_idx;
+  rv[SKETCH__SKETCH_TYPE__MAX-1]->n_data = window_idx;
+  rv[SKETCH__SKETCH_TYPE__MIN-1]->n_data = window_idx;
   return rv;
 }
 
 
-/* sketch definitions.
- *
- * These must be sorted smallest to largest, and all window sizes must
- * divide the largest window size.  The results will be placed into
- * the substream corresponding to the sketch definition index in this
- * array.
- */
-struct sketch {
-  /* period of sketch computation, seconds */
-  unsigned long int period;
-  /* function that computes the window */
-  /* a window function gets passed a readingset, start, and end value */
-  /* it should return a new ReadingSet of window values it wants to update */
-  ReadingSet** (*windowfn)(ReadingSet *window, 
-                          unsigned long long start, 
-                          unsigned long long end,
-                          int windowlen);
-  int nsubstreams;
-} sketches [] = {
-  { 300, w_stats, 4},           /* returns count, mean, min, max */
-  { 3600, w_stats, 4},
-};
-
-
 // update the sketches for a streamid in the provided window
-void update_sketches(int streamid, unsigned int start, unsigned int end) {
+void update_sketches(unsigned int streamid, unsigned int start, unsigned int end) {
   Query q = QUERY__INIT;
   Response r = RESPONSE__INIT;
   unsigned long int current;
-  unsigned long int fetch_period = 3600;
+  unsigned long int fetch_period = 3600; /* SDH : this should be compputed from the sketches list */
   int i, j;
 
   r.data = _rpc_alloc_rs(MAXRECS);
-  info("r.data: %p\n", r.data);
   info("Updating sketch for stream %i\n", streamid);
   memset(&q, 0, sizeof(q));
   q.streamid = streamid;
@@ -135,35 +104,163 @@ void update_sketches(int streamid, unsigned int start, unsigned int end) {
     /* iterate over the sketches we maintain */
     for (i = 0; i < sizeof(sketches) / sizeof(sketches[0]); i++) {
       ReadingSet **rv = 
-        sketches[i].windowfn(r.data, current, current + fetch_period, sketches[i].period);;
+        w_stats(r.data, current, current + fetch_period, sketches[i].period);;
+
+      /* add the substreams back as data in the right substream*/
       for (j = 0; j < sketches[i].nsubstreams; j++) {
         if (rv[j] && rv[j]->n_data) {
-          info("got %i records from filter, %i %i\n", rv[j]->n_data, cursubstream, j);
-          add(dbs[cursubstream].dbp, rv[j]);
+          debug("got %i records from filter, %i %i\n", rv[j]->n_data, cursubstream, j);
+          rv[j]->streamid = streamid;
+          rv[i]->substream = cursubstream;
+          if (add(dbs[cursubstream].dbp, rv[j]) < 0) {
+            warn("adding data failed...\n");
+          }
         }
         if (rv[j]) {
           _rpc_free_rs(rv[j]);
         }
         cursubstream ++;
+        assert(cursubstream < MAX_SUBSTREAMS);
       }
+      free(rv);
     }
-    
-  };
+  }
+  for (i = 1; i < MAX_SUBSTREAMS; i ++) {
+    dbs[i].dbp->sync(dbs[1].dbp, 0);
+  }
   _rpc_free_rs(r.data);
 }
+
+void usage(char *progname) {
+  fprintf(stderr, 
+          "\n\t%s [options]\n"
+          "\t\t-v                 verbose\n"
+          "\t\t-h                 help\n"
+          "\t\t-d <datadir>       set data directory (%s)\n\n",
+          progname, DATA_DIR);
+}
+
+void default_config(struct config *c) {
+  c->loglevel = LOGLVL_INFO;
+  strcpy(c->data_dir, DATA_DIR);
+  c->cache_size = 100;
+}
+
+int optparse(int argc, char **argv, struct config *c) {
+  char o;
+  char *endptr;
+  while ((o = getopt(argc, argv, "vhd:")) != -1) {
+    switch (o) {
+    case 'h':
+      usage(argv[0]);
+      return -1;
+      break;
+    case 'v':
+      c->loglevel = LOGLVL_DEBUG;
+      break;
+    case 'd':
+      strncpy(c->data_dir, optarg, FILENAME_MAX);
+      break;
+    }
+  }
+  return 0;
+}
+
+int update_from_log(struct config *c) {
+  FILE *log_fp, *work_fp;
+  char logfile[1024], workfile[1024], *cur;
+  struct flock lock;
+  struct stat sb;
+  unsigned int streamid, starttime, endtime;
+
+  /* 
+     Locking protocol:
+
+     1. Open the current work log and obtain an advisory lock on it.
+     If this fails, some other process must be working so we exit.
+
+     2. Check if there's an existing work file.  If there was, someone
+     else must not have finished, so use that one to avoid loosing
+     data.
+
+     3. If there isn't one, the last guy must have finished
+     successfully, so rename the current log to a workfile and process
+     that.
+ */
+
+  /* name the log file name */
+  cur = logfile;
+  cur = stpncpy(cur, c->data_dir, sizeof(logfile));
+  *cur++ = '/';
+  cur = stpncpy(cur, "dirty_sketches.log", 20);
+
+  memcpy(workfile, logfile, sizeof(workfile));
+  strcpy(workfile + strlen(logfile), ".work");
+  info("Updating sketches from logfile %s\n", logfile);;
+
+  log_fp = fopen(logfile, "a");
+  if (!log_fp) {
+    warn("Could not open logfile; cannot proceed\n");
+    return -1;
+  }
+
+  lock.l_type = F_WRLCK;
+  lock.l_whence = SEEK_SET;
+  lock.l_start = 0;
+  lock.l_len = 10;
+  if (fcntl(fileno(log_fp), F_SETLK, &lock) < 0) {
+    warn("Log file is locked by pid %i; aborting\n", lock.l_pid);
+    return -1;
+  }
+
+  if (stat(workfile, &sb) == 0) {
+    /* there's a work file already there (from a previous invocation?)
+       so process it without copying it. */
+    info("Work file exists, so proceeding using it\n");
+  } else {
+    info ("Copying log file to work file\n");
+    if(rename(logfile, workfile) < 0) {
+      error("Moving logfile failed: aborting: %s\n", strerror(errno));
+      return -1;
+    }
+  }
+
+  /* Workfile now points to the file we want to process.  We will keep
+     the logfile open to hold the write lock; we'll close that and
+     release the lock on exit. */
+
+  work_fp = fopen(workfile, "r");
+  if (!work_fp) {
+    error("Can't open work file (although it must exist?): %s\n", strerror(errno));
+    return -1;
+  }
+
+  while (fscanf(work_fp, "%u\t%u\t%u\n", &streamid, &starttime, &endtime) == 3) {
+    debug("updating streamid: %i from: %i starttime to: %i: endtime\n", 
+          streamid, starttime, endtime);
+    update_sketches(streamid, starttime, endtime);
+  }
+
+  remove(workfile);
+  return 0;
+};
 
 
 int main(int argc, char **argv) {
   struct config c;
-  c.cache_size = 100;
-  strcpy(c.data_dir, "testdata");
+
+  default_config(&c);
+
+  if (optparse(argc, argv, &c) < 0) {
+    exit(1);
+  }
 
   log_init();
-  log_setlevel(LOGLVL_INFO);
+  log_setlevel(c.loglevel);
 
   db_open(&c);
 
-  //update_sketches(5, time(NULL) - (3600 * 24 *1000), time(NULL));
-  update_sketches(5, 1405447200, 1405468800);
+  update_from_log(&c);
+
   db_close();
 }

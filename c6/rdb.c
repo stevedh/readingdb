@@ -95,7 +95,7 @@ void db_open(struct config *conf) {
   }
 
   oflags =  DB_INIT_MPOOL | DB_CREATE | DB_THREAD | DB_INIT_LOCK |
-    DB_INIT_LOG |  DB_INIT_TXN | DB_RECOVER;
+    DB_INIT_LOG |  DB_INIT_TXN | DB_RECOVER | DB_REGISTER;
 
   if ((ret = env->open(env, conf->data_dir, oflags, 0)) != 0) {
     fatal("ENV OPEN: %s\n", db_strerror(ret));
