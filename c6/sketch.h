@@ -34,6 +34,8 @@ char *sketch_names[] = {
   "median"
 };
 
+#define DIRTY_SKETCH_LOFILE "dirty_sketches.log"
+
 /* map a sketch to a substream, badly...  */
 int get_sketch_substream(Sketch *s) {
   if (!(s->type > 0 && s->type <= SKETCH__SKETCH_TYPE__MAX)) {

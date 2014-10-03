@@ -19,6 +19,7 @@ sig_atomic_t do_shutdown = 0;
 pthread_mutex_t stats_lock = PTHREAD_MUTEX_INITIALIZER;
 struct stats stats = {0};
 extern struct subdb dbs[MAX_SUBSTREAMS];
+extern DB_ENV *env;
 
 ReadingSet **w_stats(ReadingSet *window, 
                    unsigned long long start, 
@@ -29,18 +30,18 @@ ReadingSet **w_stats(ReadingSet *window,
   unsigned long long current;
   
   for (j = 0; j < 4; j++) {
-    rv[j] = _rpc_alloc_rs((end - start) / windowlen);
+    rv[j] = _rpc_alloc_rs(((end - start) / windowlen) + 1);
     rv[j]->n_data = 0;
   }
 
   /* iterate over the sub windows */
   for (current = start; current < end && i < window->n_data; current += windowlen) {
     int count = 0;
-    double sum, min = INFINITY, max = -INFINITY;
+    double sum = 0., min = INFINITY, max = -INFINITY;
 
-    for (; window->data[i]->timestamp >= current &&
-           window->data[i]->timestamp < current + windowlen &&
-           i < window->n_data;
+    for (; i < window->n_data && 
+           window->data[i]->timestamp >= current &&
+           window->data[i]->timestamp < current + windowlen;
          i++) {
       sum += window->data[i]->value;
       count += 1;
@@ -86,7 +87,6 @@ void update_sketches(unsigned int streamid, unsigned int start, unsigned int end
   int i, j;
 
   r.data = _rpc_alloc_rs(MAXRECS);
-  info("Updating sketch for stream %i\n", streamid);
   memset(&q, 0, sizeof(q));
   q.streamid = streamid;
   q.substream = 0;
@@ -99,19 +99,18 @@ void update_sketches(unsigned int streamid, unsigned int start, unsigned int end
     q.starttime = current;
     q.endtime = current + fetch_period;
     query(dbs[0].dbp, &q, &r, QUERY_DATA); 
-    info("found %i records\n", r.data->n_data);
+    debug("found %i records\n", r.data->n_data);
 
     /* iterate over the sketches we maintain */
-    for (i = 0; i < sizeof(sketches) / sizeof(sketches[0]); i++) {
+    for (i = 0; i < 3; i++) {
       ReadingSet **rv = 
         w_stats(r.data, current, current + fetch_period, sketches[i].period);;
-
       /* add the substreams back as data in the right substream*/
       for (j = 0; j < sketches[i].nsubstreams; j++) {
         if (rv[j] && rv[j]->n_data) {
           debug("got %i records from filter, %i %i\n", rv[j]->n_data, cursubstream, j);
           rv[j]->streamid = streamid;
-          rv[i]->substream = cursubstream;
+          rv[j]->substream = cursubstream;
           if (add(dbs[cursubstream].dbp, rv[j]) < 0) {
             warn("adding data failed...\n");
           }
@@ -126,7 +125,7 @@ void update_sketches(unsigned int streamid, unsigned int start, unsigned int end
     }
   }
   for (i = 1; i < MAX_SUBSTREAMS; i ++) {
-    dbs[i].dbp->sync(dbs[1].dbp, 0);
+    dbs[i].dbp->sync(dbs[i].dbp, 0);
   }
   _rpc_free_rs(r.data);
 }
@@ -171,6 +170,7 @@ int update_from_log(struct config *c) {
   char logfile[1024], workfile[1024], *cur;
   struct flock lock;
   struct stat sb;
+  int ret;
   unsigned int streamid, starttime, endtime;
 
   /* 
@@ -192,7 +192,7 @@ int update_from_log(struct config *c) {
   cur = logfile;
   cur = stpncpy(cur, c->data_dir, sizeof(logfile));
   *cur++ = '/';
-  cur = stpncpy(cur, "dirty_sketches.log", 20);
+  cur = stpncpy(cur, DIRTY_SKETCH_LOFILE, 20);
 
   memcpy(workfile, logfile, sizeof(workfile));
   strcpy(workfile + strlen(logfile), ".work");
@@ -204,6 +204,7 @@ int update_from_log(struct config *c) {
     return -1;
   }
 
+  /* get an exclusive lock on the log */
   lock.l_type = F_WRLCK;
   lock.l_whence = SEEK_SET;
   lock.l_start = 0;
@@ -219,16 +220,15 @@ int update_from_log(struct config *c) {
     info("Work file exists, so proceeding using it\n");
   } else {
     info ("Copying log file to work file\n");
-    if(rename(logfile, workfile) < 0) {
+    if (rename(logfile, workfile) < 0) {
       error("Moving logfile failed: aborting: %s\n", strerror(errno));
       return -1;
     }
   }
 
-  /* Workfile now points to the file we want to process.  We will keep
+  /* Workfile now contains the filename we want to process.  We will keep
      the logfile open to hold the write lock; we'll close that and
      release the lock on exit. */
-
   work_fp = fopen(workfile, "r");
   if (!work_fp) {
     error("Can't open work file (although it must exist?): %s\n", strerror(errno));
@@ -236,9 +236,13 @@ int update_from_log(struct config *c) {
   }
 
   while (fscanf(work_fp, "%u\t%u\t%u\n", &streamid, &starttime, &endtime) == 3) {
-    debug("updating streamid: %i from: %i starttime to: %i: endtime\n", 
+    info("updating sketches for streamid: %i from: %i starttime to: %i: endtime\n", 
           streamid, starttime, endtime);
     update_sketches(streamid, starttime, endtime);
+
+    if ((ret = env->txn_checkpoint(env, 10, 0, 0)) != 0) {
+      warn("txn_checkpoint: %s\n", db_strerror(ret));
+    }
   }
 
   remove(workfile);

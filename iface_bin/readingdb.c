@@ -285,8 +285,7 @@ PyObject *db_query(unsigned long long *streamids,
   d.sketch.type = SKETCH__SKETCH_TYPE__NULL;
   d.sketch.window = 0;
 
-  if (sketch) {
-    printf ("parsing sketch\n");
+  if (sketch && sketch != Py_None) {
     if (!PyArg_ParseTuple(sketch, "si", &sketch_type, &sketch_window)) {
       PyErr_SetString(PyExc_ValueError, "db_query: invalid sketch definition");
       return NULL;

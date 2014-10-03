@@ -76,15 +76,6 @@ pthread_mutex_lock(&worker_lock);                              \
 pthread_mutex_t stats_lock = PTHREAD_MUTEX_INITIALIZER;
 struct stats stats = {0, 0, 0, 0};
 
-void default_config(struct config *c) {
-  c->loglevel = LOGLVL_INFO;
-  strcpy(c->data_dir, DATA_DIR);
-  c->port = 4242;
-  c->cache_size = 32;
-  c->commit_interval = 10;
-  c->deadlock_interval = 2;
-  c->checkpoint_interval = 300;
-}
 
 void usage(char *progname) {
   fprintf(stderr, 
@@ -100,15 +91,42 @@ void usage(char *progname) {
           progname, DATA_DIR);
 }
 
+/* mark a region of time dirty */
+char dirty_logfile[FILENAME_MAX];
+void mark_sketch_dirty(unsigned long long streamid, 
+                       unsigned long long start, 
+                       unsigned long long end) {
+  if (dirty_logfile[0] == '\0') {
+    return;
+  }
+
+  FILE *logfp = fopen(dirty_logfile, "a");
+  if (logfp == NULL) {
+    warn("unable to open sketch logfile: %s\n", strerror(errno));
+  }
+  fprintf(logfp, "%llu\t%llu\t%llu\n", streamid, start, end);
+  fclose(logfp);
+}
+
 #define INVALID_INT_ARG(ARG) ((errno == ERANGE && \
            ((ARG) == LONG_MAX ||                  \
             (ARG) == LONG_MIN)) ||                \
           (errno != 0 && (ARG) == 0) ||           \
           endptr == optarg)
 
+void default_config(struct config *c) {
+  c->loglevel = LOGLVL_INFO;
+  strcpy(c->data_dir, DATA_DIR);
+  c->port = 4242;
+  c->cache_size = 32;
+  c->commit_interval = 10;
+  c->deadlock_interval = 2;
+  c->checkpoint_interval = 300;
+}
+
 int optparse(int argc, char **argv, struct config *c) {
   char o;
-  char *endptr;
+  char *endptr, *cur;
   while ((o = getopt(argc, argv, "vhd:c:p:s:l:a:")) != -1) {
     switch (o) {
     case 'h':
@@ -120,6 +138,9 @@ int optparse(int argc, char **argv, struct config *c) {
       break;
     case 'd':
       strncpy(c->data_dir, optarg, FILENAME_MAX);
+      cur = stpncpy(dirty_logfile, optarg, FILENAME_MAX);
+      *cur++ = '/';
+      stpncpy(cur, DIRTY_SKETCH_LOFILE, sizeof(dirty_logfile) - (cur - dirty_logfile));
       break;
     case 's':
       c->cache_size = strtol(optarg, &endptr, 10);
@@ -206,6 +227,14 @@ void process_pbuf(struct sock_request *request) {
           q->sketch &&
           get_sketch_substream(q->sketch) > 0) {
         substream = get_sketch_substream(q->sketch);
+        /* invalid substream is an error */
+        if (substream < 0) {
+          response.error = RESPONSE__ERROR_CODE__FAIL_PARAM;
+          rpc_send_reply(request, &response);
+          query__free_unpacked(q, NULL);
+          warn("invalid sketch substream\n");
+          goto abort;
+        }
         info("returning substream %i for sketch\n", substream);
       } else {
         substream = q->substream;
@@ -495,7 +524,7 @@ int main(int argc, char **argv) {
 
   log_setlevel(conf.loglevel);
 
-  drop_priv();
+  //drop_priv();
 
   // open the database
   db_open(&conf);
