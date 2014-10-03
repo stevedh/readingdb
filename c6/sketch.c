@@ -79,11 +79,14 @@ ReadingSet **w_stats(ReadingSet *window,
 
 
 // update the sketches for a streamid in the provided window
-void update_sketches(unsigned int streamid, unsigned int start, unsigned int end) {
+void update_sketches(struct config *c, 
+                     unsigned int streamid, 
+                     unsigned int start, 
+                     unsigned int end) {
   Query q = QUERY__INIT;
   Response r = RESPONSE__INIT;
   unsigned long int current;
-  unsigned long int fetch_period = 3600; /* SDH : this should be compputed from the sketches list */
+  unsigned long int fetch_period = 3600; /* SDH : this should be computed from the sketches list */
   int i, j;
 
   r.data = _rpc_alloc_rs(MAXRECS);
@@ -108,10 +111,10 @@ void update_sketches(unsigned int streamid, unsigned int start, unsigned int end
       /* add the substreams back as data in the right substream*/
       for (j = 0; j < sketches[i].nsubstreams; j++) {
         if (rv[j] && rv[j]->n_data) {
-          debug("got %i records from filter, %i %i\n", rv[j]->n_data, cursubstream, j);
+          info("got %i records from filter, %i %i\n", rv[j]->n_data, cursubstream, j);
           rv[j]->streamid = streamid;
           rv[j]->substream = cursubstream;
-          if (add(dbs[cursubstream].dbp, rv[j]) < 0) {
+          if (add(c, dbs[cursubstream].dbp, rv[j]) < 0) {
             warn("adding data failed...\n");
           }
         }
@@ -142,7 +145,8 @@ void usage(char *progname) {
 void default_config(struct config *c) {
   c->loglevel = LOGLVL_INFO;
   strcpy(c->data_dir, DATA_DIR);
-  c->cache_size = 100;
+  c->cache_size = 4096;
+  c->sketch = 0;
 }
 
 int optparse(int argc, char **argv, struct config *c) {
@@ -186,13 +190,18 @@ int update_from_log(struct config *c) {
      3. If there isn't one, the last guy must have finished
      successfully, so rename the current log to a workfile and process
      that.
+
+     TODO:
+
+     This would be made much more efficient by first computing the
+     non-overlapping intervals and then iterating over those.
  */
 
   /* name the log file name */
   cur = logfile;
   cur = stpncpy(cur, c->data_dir, sizeof(logfile));
   *cur++ = '/';
-  cur = stpncpy(cur, DIRTY_SKETCH_LOFILE, 20);
+  cur = stpncpy(cur, DIRTY_SKETCH_LOGFILE, 20);
 
   memcpy(workfile, logfile, sizeof(workfile));
   strcpy(workfile + strlen(logfile), ".work");
@@ -238,7 +247,7 @@ int update_from_log(struct config *c) {
   while (fscanf(work_fp, "%u\t%u\t%u\n", &streamid, &starttime, &endtime) == 3) {
     info("updating sketches for streamid: %i from: %i starttime to: %i: endtime\n", 
           streamid, starttime, endtime);
-    update_sketches(streamid, starttime, endtime);
+    update_sketches(c, streamid, starttime, endtime);
 
     if ((ret = env->txn_checkpoint(env, 10, 0, 0)) != 0) {
       warn("txn_checkpoint: %s\n", db_strerror(ret));

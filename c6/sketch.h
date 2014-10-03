@@ -34,7 +34,7 @@ char *sketch_names[] = {
   "median"
 };
 
-#define DIRTY_SKETCH_LOFILE "dirty_sketches.log"
+#define DIRTY_SKETCH_LOGFILE "dirty_sketches.log"
 
 /* map a sketch to a substream, badly...  */
 int get_sketch_substream(Sketch *s) {

@@ -148,6 +148,23 @@ void db_close() {
   }
 }
 
+/* mark a region of time dirty */
+void mark_sketch_dirty(struct config *c,
+                       unsigned long long streamid, 
+                       unsigned long long start, 
+                       unsigned long long end) {
+  if (c->sketch == 0) {
+    return;
+  }
+
+  FILE *logfp = fopen(c->sketch_log, "a");
+  if (logfp == NULL) {
+    warn("unable to open sketch logfile: %s\n", strerror(errno));
+  }
+  fprintf(logfp, "%llu\t%llu\t%llu\n", streamid, start, end);
+  fclose(logfp);
+}
+
 int get_bucket(DBC *cursorp, struct rec_key *k, struct rec_val *v) {
   int bucket_size_idx, key_level = -1;
   struct rec_key cur_k;
@@ -245,7 +262,7 @@ int split_bucket(DB *dbp, DBC *cursorp, DB_TXN *tid, struct rec_key *k) {
   return 0;
 }
 
-int add(DB *dbp, ReadingSet *rs) {
+int add(struct config *c, DB *dbp, ReadingSet *rs) {
   int cur_rec, ret;
   DBC *cursorp;
   struct rec_key cur_k;
@@ -255,6 +272,7 @@ int add(DB *dbp, ReadingSet *rs) {
   struct rec_val *v = (struct rec_val *)buf;
   struct point *rec_data = v->data;
   bool_t bucket_dirty = FALSE, bucket_valid = FALSE;
+  unsigned long long dirty_start = ULLONG_MAX, dirty_end = 0;
 
   bzero(&cur_k, sizeof(cur_k));
   bzero(&cur_v, sizeof(cur_v));
@@ -374,6 +392,14 @@ int add(DB *dbp, ReadingSet *rs) {
       bzero(&cur_k, sizeof(cur_k));
       bzero(&cur_v, sizeof(cur_v));
     }
+
+    /* find the time region this write dirties  */
+    if (rs->data[cur_rec]->timestamp < dirty_start) {
+      dirty_start = rs->data[cur_rec]->timestamp;
+    }
+    if (rs->data[cur_rec]->timestamp > dirty_end) {
+      dirty_end = rs->data[cur_rec]->timestamp;
+    }
   }
 
   if (bucket_valid && bucket_dirty) {
@@ -396,6 +422,12 @@ int add(DB *dbp, ReadingSet *rs) {
     // do_shutdown = 1;
     return -1;
   }
+
+  //
+  if (dirty_start != 0 && dirty_end != ULLONG_MAX) {
+    mark_sketch_dirty(c, rs->streamid, dirty_start, dirty_end);
+  }
+
   return 0;
 
  abort:
@@ -411,7 +443,7 @@ int add(DB *dbp, ReadingSet *rs) {
   return -1;
 }
 
-int add_enqueue(ReadingSet *rs, Response *reply) {
+int add_enqueue(struct config *c, ReadingSet *rs, Response *reply) {
   unsigned long long key;
   ReadingSet *points;
 
@@ -451,10 +483,10 @@ int add_enqueue(ReadingSet *rs, Response *reply) {
          key, rs->n_data);
     pthread_mutex_unlock(&dbs[rs->substream].lock);
 
-    if (add(dbs[rs->substream].dbp, rs) < 0) {
+    if (add(c, dbs[rs->substream].dbp, rs) < 0) {
       sleep(rand() % 1 );
       warn("Transaction aborted... retrying\n");
-      if (add(dbs[rs->substream].dbp, rs) < 0) {
+      if (add(c, dbs[rs->substream].dbp, rs) < 0) {
         warn("Retry failed... giving up\n");
         INCR_STAT(failed_adds);
         return -1;
@@ -509,14 +541,14 @@ void commit_data(struct config *conf) {
         val = hashtable_remove(dbs[dbid].dirty_data, key);
         pthread_mutex_unlock(&dbs[dbid].lock);
         assert(val != NULL);
-        
+
         debug("adding dbid: %i streamid: %llu nrecs: %i\n",
               val->substream, val->streamid, val->n_data);
         
-        if (add(dbs[dbid].dbp, val) < 0) {
+        if (add(conf, dbs[dbid].dbp, val) < 0) {
           warn("Transaction aborted in commit thread... retrying\n");
           sleep(rand() % 10 );
-          if (add(dbs[dbid].dbp, val) < 0) {
+          if (add(conf, dbs[dbid].dbp, val) < 0) {
             warn("Transaction retry failed in commit thread... giving up\n");
             INCR_STAT(failed_adds);
           }

@@ -87,25 +87,9 @@ void usage(char *progname) {
           "\t\t-p <port>          local port to bind to (4242)\n"
           "\t\t-l <interval>      how often to run the deadlock detector (2s)\n"
           "\t\t-a <interval>      how often to checkpoint and archive (300s)\n"
-          "\t\t-s <cache size>    cache size (32MB)\n\n",
+          "\t\t-s <cache size>    cache size (32MB)\n"
+          "\t\t-r                 enable support for resampling\n\n",
           progname, DATA_DIR);
-}
-
-/* mark a region of time dirty */
-char dirty_logfile[FILENAME_MAX];
-void mark_sketch_dirty(unsigned long long streamid, 
-                       unsigned long long start, 
-                       unsigned long long end) {
-  if (dirty_logfile[0] == '\0') {
-    return;
-  }
-
-  FILE *logfp = fopen(dirty_logfile, "a");
-  if (logfp == NULL) {
-    warn("unable to open sketch logfile: %s\n", strerror(errno));
-  }
-  fprintf(logfp, "%llu\t%llu\t%llu\n", streamid, start, end);
-  fclose(logfp);
 }
 
 #define INVALID_INT_ARG(ARG) ((errno == ERANGE && \
@@ -122,12 +106,13 @@ void default_config(struct config *c) {
   c->commit_interval = 10;
   c->deadlock_interval = 2;
   c->checkpoint_interval = 300;
+  c->sketch = 0;
 }
 
 int optparse(int argc, char **argv, struct config *c) {
   char o;
   char *endptr, *cur;
-  while ((o = getopt(argc, argv, "vhd:c:p:s:l:a:")) != -1) {
+  while ((o = getopt(argc, argv, "vhd:c:p:s:l:a:r")) != -1) {
     switch (o) {
     case 'h':
       usage(argv[0]);
@@ -138,9 +123,9 @@ int optparse(int argc, char **argv, struct config *c) {
       break;
     case 'd':
       strncpy(c->data_dir, optarg, FILENAME_MAX);
-      cur = stpncpy(dirty_logfile, optarg, FILENAME_MAX);
+      cur = stpncpy(c->sketch_log, optarg, FILENAME_MAX);
       *cur++ = '/';
-      stpncpy(cur, DIRTY_SKETCH_LOFILE, sizeof(dirty_logfile) - (cur - dirty_logfile));
+      stpncpy(cur, DIRTY_SKETCH_LOGFILE, sizeof(c->sketch_log) - (cur - c->sketch_log));
       break;
     case 's':
       c->cache_size = strtol(optarg, &endptr, 10);
@@ -177,6 +162,8 @@ int optparse(int argc, char **argv, struct config *c) {
         return -1;
       }
       break;
+    case 'r':
+      c->sketch = 1;
     }
   }
 
@@ -276,7 +263,7 @@ void process_pbuf(struct sock_request *request) {
         goto q_abort;
       }
       INCR_STAT(adds);
-      add_enqueue(rs, &response);
+      add_enqueue(&conf, rs, &response);
       reading_set__free_unpacked(rs, NULL);
       break;
     q_abort:

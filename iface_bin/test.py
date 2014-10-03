@@ -10,9 +10,10 @@ print "using readingdb", rdb.__file__
 print _readingdb.__file__
 
 end = 1304102690
+PORT = 4244
 
-rdb.db_setup('localhost', 4242)
-db = rdb.db_open(host='localhost', port=4242)
+rdb.db_setup('localhost', PORT)
+db = rdb.db_open(host='localhost', port=PORT)
 # db = rdb.db_open()
 
 def next(id, ref, n=1): 
