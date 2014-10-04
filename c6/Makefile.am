@@ -23,3 +23,4 @@ install-data-local:
 	mkdir -p $(DESTDIR)/$(localstatedir)/lib/readingdb
 	mkdir -p $(DESTDIR)/$(sysconfdir)/monit/conf.d
 	sh mkmonit.sh $(localstatedir) $(bindir) > $(DESTDIR)/$(sysconfdir)/monit/conf.d/readingdb
+	sh mkcron.sh $(localstatedir) $(bindir) > $(DESTDIR)/$(sysconfdir)/cron.d/readingdb
