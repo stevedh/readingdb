@@ -1,3 +1,25 @@
+/*
+ * Module for computing a covering set of all dirty regions.
+ *
+ * the main process (reading-server) append to a log of dirty regions.
+ * This has the form of a (streamid, starttime, endtime) for each
+ * write.  It's relatively inefficient to naively run the sketch
+ * updater on all of these tuples, because (a) you have to fetch at
+ * least +/- 1 hour of data around each write, and (b) most writes are
+ * close together in time.  This file has routines to converting that
+ * into a set of intervals which are more than OVERLAP_SLACK apart.
+ *
+ * The algorithm is basically from 
+ *
+ *  http://www.geeksforgeeks.org/merging-intervals/
+ *
+ * ported, to C, and with the addition of the slack parameter.  It's
+ * runtime is whatever qsort provides on your platform, and then
+ * linear in the input + output size.
+ */
+/*
+ * @author Stephen Dawson-Haggerty <steve@buildingrobotics.com>
+ */
 
 #include <stdint.h>
 #include <stdlib.h>

@@ -22,6 +22,10 @@ struct stats stats = {0};
 extern struct subdb dbs[MAX_SUBSTREAMS];
 extern DB_ENV *env;
 
+
+/*
+ * Return a list of computed stats over a window.
+ */
 ReadingSet **w_stats(ReadingSet *window, 
                    unsigned long long start, 
                    unsigned long long end,
@@ -79,7 +83,9 @@ ReadingSet **w_stats(ReadingSet *window,
 }
 
 
-// update the sketches for a streamid in the provided window
+/* 
+ * Update the sketches for a streamid in the provided window.
+ */
 void update_sketches(struct config *c, 
                      unsigned int streamid, 
                      unsigned int start, 
@@ -182,6 +188,14 @@ int optparse(int argc, char **argv, struct config *c) {
   return 0;
 }
 
+
+/*
+ * Run to process the log file from reading-server, and recompute
+ * sketches on dirty regions.
+ *
+ * Holds an advisory lock on the log file, so it safe to call multiple
+ * times.
+ */
 int update_from_log(struct config *c) {
   FILE *log_fp, *work_fp;
   char logfile[1024], workfile[1024], *cur;
