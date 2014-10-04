@@ -13,6 +13,7 @@
 #include "pbuf/rdb.pb-c.h"
 #include "commands.h"
 #include "sketch.h"
+#include "intervals.h"
 #include "config.h"
 
 sig_atomic_t do_shutdown = 0;
@@ -111,7 +112,7 @@ void update_sketches(struct config *c,
       /* add the substreams back as data in the right substream*/
       for (j = 0; j < sketches[i].nsubstreams; j++) {
         if (rv[j] && rv[j]->n_data) {
-          info("got %i records from filter, %i %i\n", rv[j]->n_data, cursubstream, j);
+          debug("got %i records from filter, %i %i\n", rv[j]->n_data, cursubstream, j);
           rv[j]->streamid = streamid;
           rv[j]->substream = cursubstream;
           if (add(c, dbs[cursubstream].dbp, rv[j]) < 0) {
@@ -174,8 +175,9 @@ int update_from_log(struct config *c) {
   char logfile[1024], workfile[1024], *cur;
   struct flock lock;
   struct stat sb;
-  int ret;
+  int ret, input_recs, merged_recs, i;
   unsigned int streamid, starttime, endtime;
+  struct interval *input, *merged;
 
   /* 
      Locking protocol:
@@ -238,20 +240,25 @@ int update_from_log(struct config *c) {
   /* Workfile now contains the filename we want to process.  We will keep
      the logfile open to hold the write lock; we'll close that and
      release the lock on exit. */
-  work_fp = fopen(workfile, "r");
-  if (!work_fp) {
+  input = parse_file(workfile, &input_recs);
+  if (!input) {
     error("Can't open work file (although it must exist?): %s\n", strerror(errno));
     return -1;
   }
 
-  while (fscanf(work_fp, "%u\t%u\t%u\n", &streamid, &starttime, &endtime) == 3) {
-    info("updating sketches for streamid: %i from: %i starttime to: %i: endtime\n", 
-          streamid, starttime, endtime);
-    update_sketches(c, streamid, starttime, endtime);
+  merged = merge_intervals(input, input_recs, &merged_recs);
 
-    if ((ret = env->txn_checkpoint(env, 10, 0, 0)) != 0) {
-      warn("txn_checkpoint: %s\n", db_strerror(ret));
-    }
+  info("merged %i regions into %i\n", input_recs, merged_recs);
+
+  for (i = 0; i < merged_recs; i++) {
+    info("updating sketches for streamid: %i from: %i starttime to: %i: endtime\n", 
+         merged[i].stream_id, merged[i].start, merged[i].end);
+    update_sketches(c, merged[i].stream_id, merged[i].start, merged[i].end);
+  }
+
+
+  if ((ret = env->txn_checkpoint(env, 10, 0, 0)) != 0) {
+    warn("txn_checkpoint: %s\n", db_strerror(ret));
   }
 
   remove(workfile);

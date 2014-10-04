@@ -1,6 +1,8 @@
 #ifndef SKETCH_H
 #define SKETCH_H
 
+#include <stdint.h>
+
 #include "pbuf/rdb.pb-c.h"
 
 /* sketch definitions.
