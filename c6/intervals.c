@@ -85,14 +85,16 @@ struct interval *parse_file(const char *filename, int *n) {
   return rv;
 }
 
-/* input should be sorted  */
-struct interval *merge_intervals(const struct interval *input, int n, int *out_n) {
+/* take a sorted list of intervals
 
+   return a list of intervals which are further than OVERLAP_SLACK
+   apart, and cover all input intervals
+*/
+struct interval *merge_intervals(const struct interval *input, int n, int *out_n) {
   /* this is as big as the output can be if it's all unique */
   struct interval *output = malloc(n * sizeof(struct interval));
-  int current_output = 0;
+  int current_output = 0, i;
   struct stack stk;
-  int i;
 
   stack_init(&stk, 16);
 
@@ -102,7 +104,7 @@ struct interval *merge_intervals(const struct interval *input, int n, int *out_n
     cur.end += OVERLAP_SLACK;
 
     /* if we're into a new stream, output and restart */
-    if ((i == 0) || (i > 0 && (i == n || input[i-1].stream_id != input[i].stream_id))) {
+    if (i == 0 || i == n || input[i-1].stream_id != input[i].stream_id) {
       /* add the resulting intervals to the output */
       while (stack_pop(&stk, &output[current_output]) != 0) {
         current_output ++;
@@ -125,26 +127,3 @@ struct interval *merge_intervals(const struct interval *input, int n, int *out_n
   *out_n = current_output;
   return output;
 };
-
-#if 0
-int main(int argc, char **argv) {
-  struct interval *data, *output;
-  int size, out_size, i;
-
-  data = parse_file(argv[1], &size);
-  printf("found %i dirty regions\n", size);
-
-/*   for (i = 0; i < size; i ++) { */
-/*     printf("%i\t%i\t%i\n", data[i].stream_id, data[i].start, data[i].end); */
-/*   } */
-
-  output = merge_intervals(data, size, &out_size);
-
-  printf("merged size is %i\n", out_size);
-  
-  for (i = 0; i < out_size; i ++) {
-    printf("%i\t%i\t%i\n", output[i].stream_id, output[i].start, output[i].end);
-  }
-
-}
-#endif

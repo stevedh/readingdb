@@ -32,6 +32,7 @@ void db_open(struct config *conf);
 void db_close();
 int get_bucket(DBC *cursorp, struct rec_key *k, struct rec_val *v);
 int split_bucket(DB *dbp, DBC *cursorp, DB_TXN *tid, struct rec_key *k);
+int valid_bucketsize(int length);
 int add(struct config *c, DB *dbp, ReadingSet *rs);
 int add_enqueue(struct config *c, ReadingSet *rs, Response *reply);
 void commit_data(struct config *conf);

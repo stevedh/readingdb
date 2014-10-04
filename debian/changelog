@@ -1,4 +1,10 @@
-readingdb (0.6.0-4) oneiric; urgency=low
+readingdb (0.7.0-1) precise; urgency=low
+
+  * Add support for sketching 
+
+ -- Stephen Dawson-Haggerty <steve@buildingrobotics.com>  Sat, 04 Oct 2014 17:22:19 +0200
+
+readingdb (0.6.0-4) precise; urgency=low
 
   * Initial release. 
 

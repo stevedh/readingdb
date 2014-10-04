@@ -255,7 +255,8 @@ int update_from_log(struct config *c) {
          merged[i].stream_id, merged[i].start, merged[i].end);
     update_sketches(c, merged[i].stream_id, merged[i].start, merged[i].end);
   }
-
+  free(merged);
+  free(input);
 
   if ((ret = env->txn_checkpoint(env, 10, 0, 0)) != 0) {
     warn("txn_checkpoint: %s\n", db_strerror(ret));
