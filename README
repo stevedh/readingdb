@@ -57,6 +57,40 @@ library to conduct multiple parallel downloads of the data.  Using
 this approach we have observed readingdb easily saturating a 100Mb
 NIC.
 
+Sketches
+--------
+
+As of 0.7.0 (October, 2014), readingdb supports computing sketches
+over the data in order to allow for more interactive performance on
+very large data sets.  As of this release, it supports precomputing
+min, max, mean, and count at 5-minute, 15-minute, and 1-hour resolutions.
+
+By default, the behavor is the same as before.  If sketches are
+enabled on reading-server (by starting it with the -r flag), it will
+stream a log of regions of streams which have new data to disk; these
+are the places where the sketches should be updated.
+
+The sketches may be updated using the new reading-sketch program; when
+run, it reads in the log, computes new sketches for the regions of
+time which have changed, and exits.  This should be called
+periodically (e.g., by cron); the debian package installes a disabled
+crontab for this purpose into /etc/cron.d/readingdb.
+
+Clients may request sketches through the new sketch kwarg to rb_query.
+For instance:
+
+-- 
+# load hourly minimia from stream number 2, over all time.
+min_data = rdb.db_query([2], 0, int(time.time()), sketch=("min", 3600))[0]
+--
+
+The value should be a tuple of (sketchname, resolution (in seconds)).
+The server will raise an exception on the client if an invalid sketch
+is passed.  
+
+Note: older servers may instead return the underlying data.  older
+client libraries will raise an exception since sketch is not a valid
+kwarg there.
 
 Dependencies
 ------------

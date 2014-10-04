@@ -424,7 +424,7 @@ int add(struct config *c, DB *dbp, ReadingSet *rs) {
   }
 
   //
-  if (dirty_start != 0 && dirty_end != ULLONG_MAX) {
+  if (dirty_start != ULLONG_MAX && dirty_end != 0) {
     mark_sketch_dirty(c, rs->streamid, dirty_start, dirty_end);
   }
 

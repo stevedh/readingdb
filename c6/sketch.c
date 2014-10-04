@@ -6,6 +6,7 @@
 #include <string.h>
 #include <time.h>
 #include <math.h>
+#include <sys/file.h>
 
 #include "stats.h"
 #include "rdb.h"
@@ -22,6 +23,10 @@ struct stats stats = {0};
 extern struct subdb dbs[MAX_SUBSTREAMS];
 extern DB_ENV *env;
 
+
+/*
+ * Return a list of computed stats over a window.
+ */
 ReadingSet **w_stats(ReadingSet *window, 
                    unsigned long long start, 
                    unsigned long long end,
@@ -79,7 +84,9 @@ ReadingSet **w_stats(ReadingSet *window,
 }
 
 
-// update the sketches for a streamid in the provided window
+/* 
+ * Update the sketches for a streamid in the provided window.
+ */
 void update_sketches(struct config *c, 
                      unsigned int streamid, 
                      unsigned int start, 
@@ -146,8 +153,15 @@ void usage(char *progname) {
 }
 
 void default_config(struct config *c) {
+  char *cur;
   c->loglevel = LOGLVL_INFO;
+
   strcpy(c->data_dir, DATA_DIR);
+  cur = stpncpy(c->sketch_log, c->data_dir, sizeof(c->sketch_log) - 1);
+  *cur++ = '/';
+  stpncpy(cur, DIRTY_SKETCH_LOGFILE, 
+          sizeof(c->sketch_log) - (cur - c->sketch_log));
+
   c->cache_size = 32;
   c->sketch = 0;
 }
@@ -169,6 +183,9 @@ int optparse(int argc, char **argv, struct config *c) {
       break;
     case 'd':
       strncpy(c->data_dir, optarg, FILENAME_MAX);
+      endptr = stpncpy(c->sketch_log, optarg, FILENAME_MAX);
+      *endptr++ = '/';
+      stpncpy(endptr, DIRTY_SKETCH_LOGFILE, sizeof(c->sketch_log) - (endptr - c->sketch_log));
       break;
     case 's':
       c->cache_size = strtol(optarg, &endptr, 10);
@@ -182,10 +199,17 @@ int optparse(int argc, char **argv, struct config *c) {
   return 0;
 }
 
+
+/*
+ * Run to process the log file from reading-server, and recompute
+ * sketches on dirty regions.
+ *
+ * Holds an advisory lock on the log file, so it safe to call multiple
+ * times.
+ */
 int update_from_log(struct config *c) {
-  FILE *log_fp, *work_fp;
-  char logfile[1024], workfile[1024], *cur;
-  struct flock lock;
+  FILE *lock_fp;
+  char lockfile[1024], workfile[1024], *cur;
   struct stat sb;
   int ret, input_recs, merged_recs, i;
   unsigned int streamid, starttime, endtime;
@@ -212,28 +236,21 @@ int update_from_log(struct config *c) {
  */
 
   /* name the log file name */
-  cur = logfile;
-  cur = stpncpy(cur, c->data_dir, sizeof(logfile));
-  *cur++ = '/';
-  cur = stpncpy(cur, DIRTY_SKETCH_LOGFILE, 20);
+  memcpy(workfile, c->sketch_log, sizeof(workfile));
+  strcpy(workfile + strlen(c->sketch_log), ".work");
+  info("Updating sketches from logfile %s\n", c->sketch_log);;
 
-  memcpy(workfile, logfile, sizeof(workfile));
-  strcpy(workfile + strlen(logfile), ".work");
-  info("Updating sketches from logfile %s\n", logfile);;
+  memcpy(lockfile, c->sketch_log, sizeof(lockfile));
+  strcpy(lockfile + strlen(c->sketch_log), ".lock");
 
-  log_fp = fopen(logfile, "a");
-  if (!log_fp) {
+  lock_fp = fopen(lockfile, "a");
+  if (!lock_fp) {
     warn("Could not open logfile; cannot proceed\n");
     return -1;
   }
 
-  /* get an exclusive lock on the log */
-  lock.l_type = F_WRLCK;
-  lock.l_whence = SEEK_SET;
-  lock.l_start = 0;
-  lock.l_len = 10;
-  if (fcntl(fileno(log_fp), F_SETLK, &lock) < 0) {
-    warn("Log file is locked by pid %i; aborting\n", lock.l_pid);
+  if (flock(fileno(lock_fp), LOCK_EX | LOCK_NB) < 0) {
+    warn("Log file is locked; aborting\n");
     return -1;
   }
 
@@ -243,7 +260,7 @@ int update_from_log(struct config *c) {
     info("Work file exists, so proceeding using it\n");
   } else {
     info ("Copying log file to work file\n");
-    if (rename(logfile, workfile) < 0) {
+    if (rename(c->sketch_log, workfile) < 0) {
       error("Moving logfile failed: aborting: %s\n", strerror(errno));
       return -1;
     }
