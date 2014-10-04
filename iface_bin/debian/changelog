@@ -1,3 +1,9 @@
+readingdb-python (0.7.0-1) precise; urgency=low
+
+  * Add support for sketches to python client
+
+ -- Stephen Dawson-Haggerty <steve@buildingrobotics.com>  Sat, 04 Oct 2014 20:17:31 +0200
+
 readingdb-python (0.6.0-3) oneiric; urgency=low
 
   * Initial release.

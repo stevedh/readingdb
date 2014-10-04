@@ -80,6 +80,7 @@ struct stats stats = {0, 0, 0, 0};
 void usage(char *progname) {
   fprintf(stderr, 
           "\n\t%s [options]\n"
+          "\t\t-V                 print version and exit\n"
           "\t\t-v                 verbose\n"
           "\t\t-h                 help\n"
           "\t\t-d <datadir>       set data directory (%s)\n"
@@ -112,12 +113,15 @@ void default_config(struct config *c) {
 int optparse(int argc, char **argv, struct config *c) {
   char o;
   char *endptr, *cur;
-  while ((o = getopt(argc, argv, "vhd:c:p:s:l:a:r")) != -1) {
+  while ((o = getopt(argc, argv, "Vvhd:c:p:s:l:a:r")) != -1) {
     switch (o) {
     case 'h':
       usage(argv[0]);
       return -1;
       break;
+    case 'V':
+      printf("%s\n", PACKAGE_STRING);
+      return -1;
     case 'v':
       c->loglevel = LOGLVL_DEBUG;
       break;
@@ -511,7 +515,7 @@ int main(int argc, char **argv) {
 
   log_setlevel(conf.loglevel);
 
-  //drop_priv();
+  drop_priv();
 
   // open the database
   db_open(&conf);

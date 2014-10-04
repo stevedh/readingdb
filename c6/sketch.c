@@ -137,8 +137,10 @@ void update_sketches(struct config *c,
 void usage(char *progname) {
   fprintf(stderr, 
           "\n\t%s [options]\n"
+	  "\t\t-V                 print version and exit\n"
           "\t\t-v                 verbose\n"
           "\t\t-h                 help\n"
+          "\t\t-s <cache size>    cache size (32MB)\n"
           "\t\t-d <datadir>       set data directory (%s)\n\n",
           progname, DATA_DIR);
 }
@@ -146,24 +148,34 @@ void usage(char *progname) {
 void default_config(struct config *c) {
   c->loglevel = LOGLVL_INFO;
   strcpy(c->data_dir, DATA_DIR);
-  c->cache_size = 4096;
+  c->cache_size = 32;
   c->sketch = 0;
 }
 
 int optparse(int argc, char **argv, struct config *c) {
   char o;
   char *endptr;
-  while ((o = getopt(argc, argv, "vhd:")) != -1) {
+  while ((o = getopt(argc, argv, "Vvhd:s:")) != -1) {
     switch (o) {
     case 'h':
       usage(argv[0]);
       return -1;
       break;
+    case 'V':
+      printf("%s\n", PACKAGE_STRING);
+      return -1;
     case 'v':
       c->loglevel = LOGLVL_DEBUG;
       break;
     case 'd':
       strncpy(c->data_dir, optarg, FILENAME_MAX);
+      break;
+    case 's':
+      c->cache_size = strtol(optarg, &endptr, 10);
+      if (endptr == optarg) {
+        fatal("Invalid cache size\n");
+        return -1;
+      }
       break;
     }
   }
@@ -275,6 +287,8 @@ int main(int argc, char **argv) {
   if (optparse(argc, argv, &c) < 0) {
     exit(1);
   }
+
+  drop_priv();
 
   log_init();
   log_setlevel(c.loglevel);
