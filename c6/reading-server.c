@@ -100,8 +100,14 @@ void usage(char *progname) {
           endptr == optarg)
 
 void default_config(struct config *c) {
+  char *cur;
   c->loglevel = LOGLVL_INFO;
   strcpy(c->data_dir, DATA_DIR);
+  cur = stpncpy(c->sketch_log, c->data_dir, sizeof(c->sketch_log) - 1);
+  *cur++ = '/';
+  stpncpy(cur, DIRTY_SKETCH_LOGFILE, 
+          sizeof(c->sketch_log) - (cur - c->sketch_log));
+
   c->port = 4242;
   c->cache_size = 32;
   c->commit_interval = 10;
