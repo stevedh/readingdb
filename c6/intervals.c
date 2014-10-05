@@ -61,7 +61,11 @@ int stack_pop(struct stack *s, struct interval *out) {
 };
 
 struct interval *stack_top(struct stack *s) {
-  return &s->stack[s->tail - 1];
+  if (s->tail > 0) {
+    return &s->stack[s->tail - 1];
+  } else { 
+    return NULL;
+  }
 }
 
 int cmp_interval(const void *a, const void *b) {
@@ -80,7 +84,7 @@ int cmp_interval(const void *a, const void *b) {
 
 /* load a dirty region file into memory and sort it. */
 struct interval *parse_file(const char *filename, int *n) {
-  FILE *fp = fopen(filename, "r");
+  FILE *fp = fopen(filename, "rx");
   int cur_size = 128, cur_idx = 0;
   struct interval *rv;
 
@@ -88,7 +92,7 @@ struct interval *parse_file(const char *filename, int *n) {
     return NULL;
   }
 
-  rv = malloc(128 * sizeof(struct interval));
+  rv = malloc(cur_size * sizeof(struct interval));
 
   while (fscanf(fp, "%u\t%u\t%u\n", 
                 &rv[cur_idx].stream_id, 
