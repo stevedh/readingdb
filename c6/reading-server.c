@@ -289,6 +289,23 @@ void process_pbuf(struct sock_request *request) {
         nearest__free_unpacked(n, NULL);
         goto abort;
       }
+      if (n->substream == 0 && 
+          n->sketch &&
+          get_sketch_substream(n->sketch) > 0) {
+        substream = get_sketch_substream(n->sketch);
+        /* invalid substream is an error */
+        if (substream < 0) {
+          response.error = RESPONSE__ERROR_CODE__FAIL_PARAM;
+          rpc_send_reply(request, &response);
+          query__free_unpacked(q, NULL);
+          warn("invalid sketch substream\n");
+          goto abort;
+        }
+        info("returning substream %i for sketch\n", substream);
+      } else {
+        substream = n->substream;
+      }
+
       response.error = RESPONSE__ERROR_CODE__FAIL_PARAM;
       response.data = _rpc_alloc_rs(n->has_n ? min(n->n, MAXRECS) : 1);
       if (!response.data) {
@@ -298,9 +315,9 @@ void process_pbuf(struct sock_request *request) {
         goto abort;
       }
       response.data->streamid = n->streamid;
-      response.data->substream = n->substream;
+      response.data->substream = substream;
       response.data->n_data = 0;
-      query_nearest(dbs[n->substream].dbp, n, &response, QUERY_DATA);
+      query_nearest(dbs[substream].dbp, n, &response, QUERY_DATA);
       rpc_send_reply(request, &response);
       nearest__free_unpacked(n, NULL);
       _rpc_free_rs(response.data);
