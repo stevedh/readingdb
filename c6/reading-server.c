@@ -303,7 +303,7 @@ void process_pbuf(struct sock_request *request) {
         }
         info("returning substream %i for sketch\n", substream);
       } else {
-        substream = q->substream;
+        substream = n->substream;
       }
 
       response.error = RESPONSE__ERROR_CODE__FAIL_PARAM;
@@ -314,7 +314,7 @@ void process_pbuf(struct sock_request *request) {
         nearest__free_unpacked(n, NULL);
         goto abort;
       }
-      response.data->streamid = substream;
+      response.data->streamid = n->streamid;
       response.data->substream = substream;
       response.data->n_data = 0;
       query_nearest(dbs[substream].dbp, n, &response, QUERY_DATA);

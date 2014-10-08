@@ -73,7 +73,8 @@ int db_query_all(struct sock_request *ipp, unsigned long long streamid,
                  const Sketch *sketch,
                  enum query_action action);
 int db_iter(struct sock_request *ipp, int streamid, 
-                  unsigned long long reference, int direction, int ret_n);
+            unsigned long long reference, 
+            const struct request_desc *req);
 
 PyObject *db_multiple(struct sock_request *ipp, const struct request_desc *req);
 // PyObject *db_sketches(struct sock_request *dbp);

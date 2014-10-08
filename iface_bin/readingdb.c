@@ -260,7 +260,8 @@ int db_query_all(struct sock_request *ipp, unsigned long long streamid,
 }
 
 int db_iter(struct sock_request *ipp, int streamid, 
-            unsigned long long reference, int direction, int ret_n) {
+            unsigned long long reference, 
+            const struct request_desc *req) {
   struct pbuf_header h;
   Nearest n = NEAREST__INIT;
   unsigned char buf[512];
@@ -268,11 +269,15 @@ int db_iter(struct sock_request *ipp, int streamid,
 
   n.streamid = streamid;
   n.reference = reference;
-  n.direction = direction;
+  n.direction = req->direction;
 
-  if (ret_n > 1) {
+  if (req->limit > 1) {
     n.has_n = 1;
-    n.n = ret_n;
+    n.n = req->limit;
+  }
+
+  if (req->sketch.type != SKETCH__SKETCH_TYPE__NULL) {
+    n.sketch = &req->sketch;
   }
 
   if ((len = nearest__get_packed_size(&n)) > sizeof(buf)) {

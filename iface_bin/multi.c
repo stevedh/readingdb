@@ -74,7 +74,7 @@ int setup_request(struct sock_request *conn,
                         req->endtime, req->substream, 
                         &req->sketch, QUERY_DATA);
   case REQ_ITER:
-    return db_iter(conn, streamid, starttime, req->direction, req->limit);
+    return db_iter(conn, streamid, starttime, req);
   default:
     return -1;
   }
