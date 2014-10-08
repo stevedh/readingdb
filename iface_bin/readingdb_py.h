@@ -46,10 +46,12 @@ PyObject *db_query(unsigned long long *streamids,
 PyObject *db_next(unsigned long long *streamid, 
                   unsigned long long reference, 
                   int n,
+                  PyObject *sketch,
                   struct sock_request *ipp);
 PyObject *db_prev(unsigned long long *streamid, 
                   unsigned long long reference, 
                   int n,
+                  PyObject *sketch,
                   struct sock_request *ipp);
 
 /* modifications */

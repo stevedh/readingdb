@@ -71,6 +71,7 @@ PyObject *db_query(unsigned long long *streamid,
 PyObject * db_next(unsigned long long *streamids, 
                    unsigned long long reference, 
                    int n = 1,
+                   PyObject *sketch = NULL,
                    struct sock_request *conn = NULL);
 
 %exception db_prev {
@@ -80,6 +81,7 @@ PyObject * db_next(unsigned long long *streamids,
 PyObject * db_prev(unsigned long long *streamids, 
                    unsigned long long reference, 
                    int n = 1,
+                   PyObject *sketch = NULL,
                    struct sock_request *conn = NULL);
 
 %exception db_add {

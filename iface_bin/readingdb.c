@@ -79,6 +79,37 @@ struct sock_request *__db_open(const char *host, const short port, int *rc) {
   return NULL;
 }
 
+Sketch *parse_sketch(PyObject *sketch, Sketch *out) {
+  char *sketch_type;
+  int sketch_window, i, sketch_type_val = -1;
+
+  sketch__init(out);
+  out->type = SKETCH__SKETCH_TYPE__NULL;
+  out->window = 0;
+  printf("parsing sketch\n");
+
+  if (sketch && sketch != Py_None) {
+    if (!PyArg_ParseTuple(sketch, "si", &sketch_type, &sketch_window)) {
+      PyErr_SetString(PyExc_ValueError, "db_query: invalid sketch definition");
+      return NULL;
+    }
+    for (i = 0; i < sizeof(sketch_names) / sizeof(sketch_names[0]); i ++) {
+      if (strcmp(sketch_names[i], sketch_type) == 0) {
+        sketch_type_val = i;
+        break;
+      }
+    }
+    if (sketch_type_val < 0) {
+      PyErr_SetString(PyExc_ValueError, "db_query: invalid sketch name");
+      return NULL;
+    }
+    out->type = sketch_type_val;
+    out->window = sketch_window;
+    printf("sketch: %i %i\n", out->type, out->window);
+  }
+  return out;
+}
+
 // friendly db_open which raises python exceptions
 struct sock_request *db_open(const char *host, const short port) {
   int rc;
@@ -272,8 +303,6 @@ PyObject *db_query(unsigned long long *streamids,
                    int substream,
                    PyObject *sketch,
                    struct sock_request *ipp) {
-  char *sketch_type;
-  int sketch_window, i, sketch_type_val = -1;
   struct request_desc d;
   d.streamids = streamids;
   d.substream = substream;
@@ -281,32 +310,12 @@ PyObject *db_query(unsigned long long *streamids,
   d.starttime = starttime;
   d.endtime = endtime;
   d.limit = limit > 0 ? limit : 1e6;
-  sketch__init(&d.sketch);
-  d.sketch.type = SKETCH__SKETCH_TYPE__NULL;
-  d.sketch.window = 0;
-
-  if (sketch && sketch != Py_None) {
-    if (!PyArg_ParseTuple(sketch, "si", &sketch_type, &sketch_window)) {
-      PyErr_SetString(PyExc_ValueError, "db_query: invalid sketch definition");
-      return NULL;
-    }
-    for (i = 0; i < sizeof(sketch_names) / sizeof(sketch_names[0]); i ++) {
-      if (strcmp(sketch_names[i], sketch_type) == 0) {
-        sketch_type_val = i;
-        break;
-      }
-    }
-    if (sketch_type_val < 0) {
-      PyErr_SetString(PyExc_ValueError, "db_query: invalid sketch name");
-      return NULL;
-    }
-    if (substream != 0) {
-      PyErr_SetString(PyExc_ValueError, "db_query: cannot request both sketch and substream");
-      return NULL;
-    }
-
-    d.sketch.type = sketch_type_val;
-    d.sketch.window = sketch_window;
+  /* sets an error indicator */
+  if (!parse_sketch(sketch, &d.sketch))
+    return NULL;
+  if (substream && d.sketch.type != SKETCH__SKETCH_TYPE__NULL) {
+    PyErr_SetString(PyExc_ValueError, "db_query: cannot request both sketch and substream");
+    return NULL;
   }
 
   return db_multiple(ipp, &d);
@@ -314,6 +323,7 @@ PyObject *db_query(unsigned long long *streamids,
 
 PyObject *db_next(unsigned long long *streamids,
                   unsigned long long reference, int n,
+                  PyObject *sketch,
                   struct sock_request *ipp) {
   struct request_desc d;
   d.streamids = streamids;
@@ -321,12 +331,18 @@ PyObject *db_next(unsigned long long *streamids,
   d.starttime = reference;
   d.direction = NEAREST__DIRECTION__NEXT;
   d.limit = n > 0 ? n : 1;
+
+  /* sets an error indicator */
+  if (!parse_sketch(sketch, &d.sketch))
+    return NULL;
+
   return db_multiple(ipp, &d);
   // return db_iter(ipp, streamid, reference, NEAREST__DIRECTION__NEXT, n);
 }
 
 PyObject *db_prev(unsigned long long *streamids,
                   unsigned long long reference, int n,
+                  PyObject *sketch,
                   struct sock_request *ipp) {
   struct request_desc d;
   PyObject *numpy, *flipud, *p, *rv;
@@ -336,6 +352,10 @@ PyObject *db_prev(unsigned long long *streamids,
   d.starttime = reference;
   d.direction = NEAREST__DIRECTION__PREV;
   d.limit = n > 0 ? n : 1;
+
+  /* sets an error indicator */
+  if (!parse_sketch(sketch, &d.sketch))
+    return NULL;
 
   // load the data
   rv = db_multiple(ipp, &d);
