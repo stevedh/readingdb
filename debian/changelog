@@ -1,3 +1,9 @@
+readingdb (0.7.1-1) precise; urgency=low
+
+  * Add support for fetching substream sketches in db_prev/db_next
+
+ -- Stephen Dawson-Haggerty <steve@buildingrobotics.com>  Thu, 09 Oct 2014 01:07:00 +0200
+
 readingdb (0.7.0-1) precise; urgency=low
 
   * Add support for sketching 

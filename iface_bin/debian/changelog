@@ -1,3 +1,9 @@
+readingdb-python (0.7.1) precise; urgency=low
+
+  * Add support for fetching sketches from db_prev/db_next
+
+ -- Stephen Dawson-Haggerty <steve@buildingrobotics.com>  Thu, 09 Oct 2014 01:08:00 +0200
+
 readingdb-python (0.7.0-1) precise; urgency=low
 
   * Add support for sketches to python client
