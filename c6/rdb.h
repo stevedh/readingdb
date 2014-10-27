@@ -17,6 +17,7 @@ struct config {
   long checkpoint_interval;
   int sketch;
   char sketch_log[FILENAME_MAX];
+  int ipv6;
 };
 
 struct subdb {
