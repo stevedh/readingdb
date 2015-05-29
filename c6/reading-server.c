@@ -162,7 +162,7 @@ int optparse(int argc, char **argv, struct config *c) {
     case 'a':
       c->checkpoint_interval = strtol(optarg, &endptr, 10);
       if (INVALID_INT_ARG(c->checkpoint_interval)) {
-        fatal("Invalid deadlock interval\n");
+        fatal("Invalid checkpoint interval\n");
         return -1;
       }
       break;
@@ -200,6 +200,8 @@ void process_pbuf(struct sock_request *request) {
   Response response = RESPONSE__INIT;
 
   while (fread(&h, sizeof(h), 1, request->sock_fp) > 0) {
+    /* need to reinitialize every time we process a command */
+    response__init(&response);
     if (ntohl(h.body_length) > MAX_PBUF_MESSAGE) 
       goto abort;
     if (ntohl(h.body_length) > current_alloc) {
@@ -278,6 +280,8 @@ void process_pbuf(struct sock_request *request) {
         goto q_abort;
       }
       INCR_STAT(adds);
+      response.error = RESPONSE__ERROR_CODE__OK;
+      rpc_send_reply(request, &response);
       add_enqueue(&conf, rs, &response);
       reading_set__free_unpacked(rs, NULL);
       break;
@@ -333,6 +337,8 @@ void process_pbuf(struct sock_request *request) {
       d = delete__unpack(NULL, ntohl(h.body_length), buf);
       del(dbs[d->substream].dbp, d);
       delete__free_unpacked(d, NULL);
+      response.error = RESPONSE__ERROR_CODE__OK;
+      rpc_send_reply(request, &response);
       INCR_STAT(deletes);
       break;
     default:
@@ -342,6 +348,7 @@ void process_pbuf(struct sock_request *request) {
     }
   }
  abort:
+  close(request->sock_fp);
   if (current_alloc > 0)
     free(buf);
 }

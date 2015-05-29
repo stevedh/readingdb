@@ -128,8 +128,10 @@ struct sock_request *db_open(const char *host, const short port) {
 int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
   int i, len;
   ReadingSet *r;
+  Response *response;
   struct pbuf_header h;
   unsigned char *buf;
+  void *reply;
 
   r = _rpc_alloc_rs(SMALL_POINTS);
   if (!r) {
@@ -214,6 +216,33 @@ int db_add(struct sock_request *ipp, int streamid, PyObject *values) {
     return 0;
   }
   free(buf);
+
+  /* add sent.  now wait for ack */
+  if (fread(&h, sizeof(h), 1, ipp->sock_fp) <= 0) {
+    PyErr_Format(PyExc_IOError, "error reading reply: %s", strerror(errno));
+    return 0;
+  }
+
+  len = ntohl(h.body_length);
+  reply = malloc(len);
+  if (!reply) return -1;
+  if (fread(reply, len, 1, ipp->sock_fp) <= 0) {
+    PyErr_Format(PyExc_IOError, "error reading reply code: %s", strerror(errno));
+    free(reply);
+    return 0;
+  }
+
+  response = response__unpack(NULL, len, reply);
+  if (response->error != RESPONSE__ERROR_CODE__OK) {
+    PyErr_Format(PyExc_IOError, "server error adding data: %i", response->error);
+    free(reply);
+    response__free_unpacked(response, NULL);
+    return 0;
+  }
+  
+  free(reply);
+  response__free_unpacked(response, NULL);
+
   return 1;
 }
 
