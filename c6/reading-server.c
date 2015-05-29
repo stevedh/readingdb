@@ -114,12 +114,13 @@ void default_config(struct config *c) {
   c->deadlock_interval = 2;
   c->checkpoint_interval = 300;
   c->sketch = 0;
+  c->ipv6 = 1;
 }
 
 int optparse(int argc, char **argv, struct config *c) {
   char o;
   char *endptr, *cur;
-  while ((o = getopt(argc, argv, "Vvhd:c:p:s:l:a:r")) != -1) {
+  while ((o = getopt(argc, argv, "Vvhd:c:p:s:l:a:r4")) != -1) {
     switch (o) {
     case 'h':
       usage(argv[0]);
@@ -174,6 +175,10 @@ int optparse(int argc, char **argv, struct config *c) {
       break;
     case 'r':
       c->sketch = 1;
+      break;
+    case '4':
+      c->ipv6 = 0;
+      break;
     }
   }
 
@@ -525,6 +530,9 @@ int main(int argc, char **argv) {
   struct timeval last, now, delta;
   int yes;
   pthread_t **threads;
+  struct sockaddr_storage addr;
+  socklen_t addr_size;
+  int sock;
 
   sem_init(&worker_count_sem, 0, MAXCONCURRENCY);
 
@@ -546,20 +554,28 @@ int main(int argc, char **argv) {
   signal_setup();
   gettimeofday(&last, NULL);
 
-  int sock = socket(AF_INET6, SOCK_STREAM, 0);
-  struct sockaddr_in6 addr = {
-    .sin6_family = AF_INET6,
-    .sin6_addr = IN6ADDR_ANY_INIT,
-    .sin6_port = htons(conf.port),
+  if (conf.ipv6) {
+    sock = socket(AF_INET6, SOCK_STREAM, 0);
+    struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&addr;
+    addr6->sin6_family = AF_INET6;
+    addr6->sin6_addr = in6addr_any;
+    addr6->sin6_port = htons(conf.port);
+    addr_size = sizeof(struct sockaddr_in6);
+  } else {
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in *addr4 = (struct sockaddr_in *)&addr;
+    addr4->sin_family = AF_INET;
+    addr4->sin_addr.s_addr = INADDR_ANY;
+    addr4->sin_port = htons(conf.port);
+    addr_size = sizeof(struct sockaddr_in);
   };
   
-
   if (sock < 0) {
     log_fatal_perror("socket");
     goto close;
   }
 
-  if (bind(sock, (struct sockaddr *)&addr, sizeof(struct sockaddr_in6)) < 0) {
+  if (bind(sock, &addr, addr_size) < 0) {
     log_fatal_perror("bind");
     goto close;
   }
@@ -587,9 +603,9 @@ int main(int argc, char **argv) {
 
   while (!do_shutdown) {
     char addr_buf[256];
-    struct sockaddr_in6 remote;
+    struct sockaddr_storage remote;
     int client, rc;
-    socklen_t addrlen = sizeof(struct sockaddr_in6);
+    socklen_t addrlen = sizeof(struct sockaddr_storage);
     struct sock_request *req;
     pthread_t thread;
     fd_set fs;
@@ -613,9 +629,16 @@ int main(int argc, char **argv) {
     } else {
       goto do_stats;
     }
-    
-    inet_ntop(AF_INET6, &remote.sin6_addr, addr_buf, sizeof(addr_buf));
-    debug("Accepted client connection from %s\n", addr_buf);
+
+    if (remote.ss_family == AF_INET6) {
+      inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)&remote)->sin6_addr), addr_buf, sizeof(addr_buf));
+    } else if (remote.ss_family == AF_INET) {
+      inet_ntop(AF_INET, &(((struct sockaddr_in *)&remote)->sin_addr), addr_buf, sizeof(addr_buf));
+    } else {
+      addr_buf[0] = '\0';
+    }
+
+    info("Accepted client connection from %s\n", addr_buf);
     INCR_STAT(connects);
 
     req = malloc(sizeof(struct sock_request));

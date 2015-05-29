@@ -1,3 +1,9 @@
+readingdb (0.7.2-1) precise; urgency=low
+
+  * Add support for IPv4-only environments
+
+ -- Stephen Dawson-Haggerty <steve@buildingrobotics.com>  Mon, 27 Oct 2014 15:40:00 -0700
+
 readingdb (0.7.1-1) precise; urgency=low
 
   * Add support for fetching substream sketches in db_prev/db_next
