@@ -27,12 +27,14 @@ if len(sys.argv) == 1:
     print "%s [-a | -r | -n | -d | -c]" % sys.argv[0]
 elif sys.argv[1] == '-a':
     # substream 1 has every bucket filled
+    import random
+    start = random.randint(0, end)
     for i in range(0, 1000):
-        data = [(x, x, x) for x in xrange(i * 100, i * 100 + 100)]
+        data = [(x + start, x + start, x + start) for x in xrange(i * 100, i * 100 + 100)]
         rdb.db_add(db, 1, data)
 
     # substream 2 has points one hour apart
-    for i in range(0, 10000):
+    for i in range(start / 3600, start / 3600 + 10000):
         rdb.db_add(db, 2, [(i * 3600, 0, i * 3600)])
 elif sys.argv[1] == '-r':
     # test that we read back what we wrote
