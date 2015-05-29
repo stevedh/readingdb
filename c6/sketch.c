@@ -115,7 +115,7 @@ void update_sketches(struct config *c,
     /* iterate over the sketches we maintain */
     for (i = 0; i < 3; i++) {
       ReadingSet **rv = 
-        w_stats(r.data, current, current + fetch_period, sketches[i].period);;
+        w_stats(r.data, current, current + fetch_period, sketches[i].period);
       /* add the substreams back as data in the right substream*/
       for (j = 0; j < sketches[i].nsubstreams; j++) {
         if (rv[j] && rv[j]->n_data) {
