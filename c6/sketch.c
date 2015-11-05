@@ -110,7 +110,7 @@ void update_sketches(struct config *c,
     q.starttime = current;
     q.endtime = current + fetch_period;
     query(dbs[0].dbp, &q, &r, QUERY_DATA); 
-    info("found %i records\n", r.data->n_data);
+    debug("found %i records\n", r.data->n_data);
 
     /* iterate over the sketches we maintain */
     for (i = 0; i < 3; i++) {
@@ -119,7 +119,7 @@ void update_sketches(struct config *c,
       /* add the substreams back as data in the right substream*/
       for (j = 0; j < sketches[i].nsubstreams; j++) {
         if (rv[j] && rv[j]->n_data) {
-          info("got %i records from filter, %i %i\n", rv[j]->n_data, cursubstream, j);
+          debug("got %i records from filter, %i %i\n", rv[j]->n_data, cursubstream, j);
           rv[j]->streamid = streamid;
           rv[j]->substream = cursubstream;
           if (add(c, dbs[cursubstream].dbp, rv[j]) < 0) {
