@@ -1,3 +1,9 @@
+readingdb (0.7.3-precise1) precise; urgency=low
+
+  * Disable sketches other than mean() (which we don't use...)
+
+ -- br <br@ubuntu>  Wed, 04 Nov 2015 16:32:08 -0800
+
 readingdb (0.7.2-1) precise; urgency=low
 
   * Add support for IPv4-only environments

@@ -76,10 +76,10 @@ ReadingSet **w_stats(ReadingSet *window,
       window_idx ++;
     }
   };
-  rv[SKETCH__SKETCH_TYPE__COUNT-1]->n_data = window_idx;
+  rv[SKETCH__SKETCH_TYPE__COUNT-1]->n_data = 0;// window_idx;
   rv[SKETCH__SKETCH_TYPE__MEAN-1]->n_data = window_idx;
-  rv[SKETCH__SKETCH_TYPE__MAX-1]->n_data = window_idx;
-  rv[SKETCH__SKETCH_TYPE__MIN-1]->n_data = window_idx;
+  rv[SKETCH__SKETCH_TYPE__MAX-1]->n_data = 0;//window_idx;
+  rv[SKETCH__SKETCH_TYPE__MIN-1]->n_data = 0;//window_idx;
   return rv;
 }
 
@@ -110,7 +110,7 @@ void update_sketches(struct config *c,
     q.starttime = current;
     q.endtime = current + fetch_period;
     query(dbs[0].dbp, &q, &r, QUERY_DATA); 
-    debug("found %i records\n", r.data->n_data);
+    info("found %i records\n", r.data->n_data);
 
     /* iterate over the sketches we maintain */
     for (i = 0; i < 3; i++) {
@@ -119,7 +119,7 @@ void update_sketches(struct config *c,
       /* add the substreams back as data in the right substream*/
       for (j = 0; j < sketches[i].nsubstreams; j++) {
         if (rv[j] && rv[j]->n_data) {
-          debug("got %i records from filter, %i %i\n", rv[j]->n_data, cursubstream, j);
+          info("got %i records from filter, %i %i\n", rv[j]->n_data, cursubstream, j);
           rv[j]->streamid = streamid;
           rv[j]->substream = cursubstream;
           if (add(c, dbs[cursubstream].dbp, rv[j]) < 0) {
