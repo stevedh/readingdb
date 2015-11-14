@@ -67,19 +67,19 @@ ReadingSet **w_stats(ReadingSet *window,
       rv[SKETCH__SKETCH_TYPE__MEAN-1]->data[window_idx]->timestamp = current;
       rv[SKETCH__SKETCH_TYPE__MEAN-1]->data[window_idx]->value = (sum / count);
 
-      rv[SKETCH__SKETCH_TYPE__MAX-1]->data[window_idx]->timestamp = current;
-      rv[SKETCH__SKETCH_TYPE__MAX-1]->data[window_idx]->value = max;
-
       rv[SKETCH__SKETCH_TYPE__MIN-1]->data[window_idx]->timestamp = current;
       rv[SKETCH__SKETCH_TYPE__MIN-1]->data[window_idx]->value = min;
+
+      rv[SKETCH__SKETCH_TYPE__MAX-1]->data[window_idx]->timestamp = current;
+      rv[SKETCH__SKETCH_TYPE__MAX-1]->data[window_idx]->value = max;
 
       window_idx ++;
     }
   };
-  rv[SKETCH__SKETCH_TYPE__COUNT-1]->n_data = 0;// window_idx;
+  rv[SKETCH__SKETCH_TYPE__COUNT-1]->n_data = window_idx;
   rv[SKETCH__SKETCH_TYPE__MEAN-1]->n_data = window_idx;
-  rv[SKETCH__SKETCH_TYPE__MAX-1]->n_data = 0;//window_idx;
-  rv[SKETCH__SKETCH_TYPE__MIN-1]->n_data = 0;//window_idx;
+  rv[SKETCH__SKETCH_TYPE__MIN-1]->n_data = window_idx;
+  rv[SKETCH__SKETCH_TYPE__MAX-1]->n_data = window_idx;
   return rv;
 }
 
@@ -118,7 +118,7 @@ void update_sketches(struct config *c,
         w_stats(r.data, current, current + fetch_period, sketches[i].period);
       /* add the substreams back as data in the right substream*/
       for (j = 0; j < sketches[i].nsubstreams; j++) {
-        if (rv[j] && rv[j]->n_data) {
+        if ((1 << cursubstream) & c->compute_sketches && rv[j] && rv[j]->n_data) {
           debug("got %i records from filter, %i %i\n", rv[j]->n_data, cursubstream, j);
           rv[j]->streamid = streamid;
           rv[j]->substream = cursubstream;
@@ -164,12 +164,14 @@ void default_config(struct config *c) {
 
   c->cache_size = 32;
   c->sketch = 0;
+  c->compute_sketches = 0;
 }
 
 int optparse(int argc, char **argv, struct config *c) {
   char o;
   char *endptr;
-  while ((o = getopt(argc, argv, "Vvhd:s:")) != -1) {
+  long int temp;
+  while ((o = getopt(argc, argv, "Vvhd:s:r:")) != -1) {
     switch (o) {
     case 'h':
       usage(argv[0]);
@@ -193,7 +195,28 @@ int optparse(int argc, char **argv, struct config *c) {
         fatal("Invalid cache size\n");
         return -1;
       }
+    case 'r':
+      temp = strtol(optarg, &endptr, 10);
+      if (endptr == optarg || temp < 0 || temp >= 12) {
+	fatal("Invalid sketch number\n");
+	return -1;
+      }
+      c->compute_sketches |= 1 << temp;
       break;
+      
+    }
+  }
+  if (c->compute_sketches == 0) {
+    info("Updating all sketches\n");
+    c->compute_sketches = 0xffff;
+  } else {
+    for (temp = 1; temp <= 12; temp++) {
+      if (c->compute_sketches & (1 << temp)) {
+	info("Updating sketch %i: %s(%i)\n", 
+	     temp,
+	     sketch_names[(temp % 4)],
+	     sketches[(temp - 1) / 4].period);
+      }
     }
   }
   return 0;
@@ -300,6 +323,7 @@ int main(int argc, char **argv) {
   struct config c;
 
   default_config(&c);
+  log_init();
 
   if (optparse(argc, argv, &c) < 0) {
     exit(1);
@@ -307,7 +331,6 @@ int main(int argc, char **argv) {
 
   drop_priv();
 
-  log_init();
   log_setlevel(c.loglevel);
 
   db_open(&c);

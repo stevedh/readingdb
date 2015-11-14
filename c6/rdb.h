@@ -18,6 +18,7 @@ struct config {
   int sketch;
   char sketch_log[FILENAME_MAX];
   int ipv6;
+  unsigned long compute_sketches;
 };
 
 struct subdb {
