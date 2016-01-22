@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.61)
-AC_INIT(readingdb, 0.7.3, steve@buildingrobotics.com)
+AC_INIT(readingdb, 0.7.2, steve@buildingrobotics.com)
 AC_CONFIG_HEADER([c6/config.h])
 AC_CONFIG_MACRO_DIR([m4])
 

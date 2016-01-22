@@ -57,7 +57,6 @@ ReadingSet **w_stats(ReadingSet *window,
       if (window->data[i]->value > max) {
         max = window->data[i]->value;
       }
-      i += 1;
     };
 
     if (count > 0) {
